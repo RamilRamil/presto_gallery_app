@@ -1,0 +1,225 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Knowledge",
+  "name": "PRESTO_PIC_LOADER domain",
+  "description": "Domain vocabulary for converting images into pixel art for the Pimoroni Presto. Code identifiers and spec terms must match these entities.",
+  "entities": [
+    {
+      "@id": "source-image",
+      "@type": "DataEntity",
+      "name": "SourceImage",
+      "description": "Input picture of any size (PNG, JPEG or WebP) read from the inbox; converted to RGB, alpha flattened onto the background color.",
+      "properties": {
+        "width": {"@type": "Integer", "value": "pixels"},
+        "height": {"@type": "Integer", "value": "pixels"},
+        "acceptedExtensions": {"@type": "Text", "value": ".png .jpg .jpeg .webp"}
+      }
+    },
+    {
+      "@id": "rgb-color",
+      "@type": "DataEntity",
+      "name": "RgbColor",
+      "description": "A color as three 0..255 channels (red, green, blue).",
+      "properties": {
+        "red": {"@type": "Integer", "value": "0..255"},
+        "green": {"@type": "Integer", "value": "0..255"},
+        "blue": {"@type": "Integer", "value": "0..255"}
+      }
+    },
+    {
+      "@id": "size",
+      "@type": "DataEntity",
+      "name": "Size",
+      "description": "Width and height in pixels or cells.",
+      "properties": {
+        "width": {"@type": "Integer", "value": ">= 1"},
+        "height": {"@type": "Integer", "value": ">= 1"}
+      }
+    },
+    {
+      "@id": "grid",
+      "@type": "DataEntity",
+      "name": "Grid",
+      "description": "Square cell grid that the image is reduced to; one cell becomes one pixel-art pixel.",
+      "properties": {
+        "gridSize": {"@type": "Integer", "value": "16 | 32 | 64", "qualifiers": {"default": 32}},
+        "cellSize": {"@type": "Integer", "value": "floor(screenSize / gridSize): 15, 7 or 3 px"}
+      }
+    },
+    {
+      "@id": "presto-screen",
+      "@type": "DeviceEntity",
+      "name": "PrestoScreen",
+      "description": "Pimoroni Presto display in normal mode.",
+      "properties": {
+        "screenSize": {"@type": "Integer", "value": 240}
+      }
+    },
+    {
+      "@id": "palette",
+      "@type": "DataEntity",
+      "name": "Palette",
+      "description": "Ordered list of RgbColor (1..256 entries); pixel-art pixels store indices into it. Either adaptive (built from the image) or a named preset.",
+      "properties": {
+        "colorCount": {"@type": "Integer", "value": "2..256", "qualifiers": {"default": 16}},
+        "paletteName": {"@type": "Text", "value": "adaptive | pico-8"}
+      }
+    },
+    {
+      "@id": "pico-8-palette",
+      "@type": "PresetEntity",
+      "name": "Pico8Palette",
+      "description": "Fixed 16-color PICO-8 preset palette.",
+      "properties": {
+        "colorCount": {"@type": "Integer", "value": 16}
+      }
+    },
+    {
+      "@id": "fit-mode",
+      "@type": "EnumEntity",
+      "name": "FitMode",
+      "description": "How a non-square SourceImage is mapped to the square Grid: crop (center crop to square) or fit (scale to fit, pad with background color).",
+      "properties": {
+        "values": {"@type": "Text", "value": "crop | fit", "qualifiers": {"default": "crop"}}
+      }
+    },
+    {
+      "@id": "dithering",
+      "@type": "SettingEntity",
+      "name": "Dithering",
+      "description": "Floyd-Steinberg error diffusion while mapping colors to the Palette; on or off.",
+      "properties": {
+        "dither": {"@type": "Boolean", "value": "true | false", "qualifiers": {"default": false}}
+      }
+    },
+    {
+      "@id": "pixelize-settings",
+      "@type": "DataEntity",
+      "name": "PixelizeSettings",
+      "description": "Immutable set of conversion options passed to the pixelize pipeline.",
+      "properties": {
+        "gridSize": {"@type": "Integer", "value": "16 | 32 | 64"},
+        "colorCount": {"@type": "Integer", "value": "2..256"},
+        "paletteName": {"@type": "Text", "value": "adaptive | pico-8"},
+        "fitMode": {"@type": "Text", "value": "crop | fit"},
+        "dither": {"@type": "Boolean", "value": "true | false"},
+        "backgroundColor": {"@type": "Text", "value": "RgbColor, default black"}
+      }
+    },
+    {
+      "@id": "frame",
+      "@type": "DataEntity",
+      "name": "Frame",
+      "description": "One image of PixelArt: gridSize x gridSize palette indices in row-major order plus a display duration. MVP produces exactly one frame.",
+      "properties": {
+        "indices": {"@type": "Bytes", "value": "width*height bytes, row-major"},
+        "durationMs": {"@type": "Integer", "value": "0..65535, 0 = static"}
+      }
+    },
+    {
+      "@id": "pixel-art",
+      "@type": "DataEntity",
+      "name": "PixelArt",
+      "description": "Format-independent result of pixelize: size, Palette and a list of Frame.",
+      "properties": {
+        "width": {"@type": "Integer", "value": "= gridSize"},
+        "height": {"@type": "Integer", "value": "= gridSize"},
+        "frameCount": {"@type": "Integer", "value": ">= 1"}
+      }
+    },
+    {
+      "@id": "pixelize-pipeline",
+      "@type": "ProcessEntity",
+      "name": "PixelizePipeline",
+      "description": "Pure calculation pixelize(image, settings) -> PixelArt: fit to square, downscale to Grid, build/choose Palette, map colors (optionally dithered).",
+      "properties": {}
+    },
+    {
+      "@id": "preview-png",
+      "@type": "OutputEntity",
+      "name": "PreviewPng",
+      "description": "PNG for human viewing: each cell drawn as a large square block.",
+      "properties": {
+        "previewScale": {"@type": "Integer", "value": "pixels per cell", "qualifiers": {"default": 8}}
+      }
+    },
+    {
+      "@id": "presto-bin-format",
+      "@type": "OutputEntity",
+      "name": "PrestoBinFormat",
+      "description": "Versioned little-endian binary file for the Presto player: header, palette, frames. Documented in docs/bin-format.md.",
+      "properties": {
+        "magic": {"@type": "Text", "value": "PPXA"},
+        "formatVersion": {"@type": "Integer", "value": 1},
+        "fileExtension": {"@type": "Text", "value": ".bin"}
+      }
+    },
+    {
+      "@id": "encoder",
+      "@type": "ProcessEntity",
+      "name": "Encoder",
+      "description": "Pure function PixelArt -> bytes for one output format; the format abstraction barrier.",
+      "properties": {}
+    },
+    {
+      "@id": "inbox",
+      "@type": "LocationEntity",
+      "name": "Inbox",
+      "description": "Folder inbox/ where the user drops SourceImage files.",
+      "properties": {"path": {"@type": "Text", "value": "inbox/"}}
+    },
+    {
+      "@id": "outbox",
+      "@type": "LocationEntity",
+      "name": "Outbox",
+      "description": "Folder outbox/ receiving <name>.preview.png and <name>.bin for each processed SourceImage.",
+      "properties": {"path": {"@type": "Text", "value": "outbox/"}}
+    },
+    {
+      "@id": "cli",
+      "@type": "ProcessEntity",
+      "name": "Cli",
+      "description": "Single command that processes every SourceImage in the Inbox with the given PixelizeSettings.",
+      "properties": {"command": {"@type": "Text", "value": "python -m presto_pic_loader [options]"}}
+    },
+    {
+      "@id": "layer",
+      "@type": "ArchitectureEntity",
+      "name": "Layer",
+      "description": "Stratified-design level; code in a layer calls only its own or lower layers. 1 primitives, 2 image operations, 3 pipeline, 4 encoders, 5 actions.",
+      "properties": {
+        "level": {"@type": "Integer", "value": "1..5"},
+        "isPure": {"@type": "Boolean", "value": "true for 1..4, false for 5"}
+      }
+    }
+  ],
+  "relations": [
+    {"@type": "HasProperty", "source": "palette", "target": "rgb-color", "properties": {"cardinality": "1..256"}},
+    {"@type": "IsA", "source": "pico-8-palette", "target": "palette"},
+    {"@type": "HasPart", "source": "pixelize-settings", "target": "grid"},
+    {"@type": "HasPart", "source": "pixelize-settings", "target": "fit-mode"},
+    {"@type": "HasPart", "source": "pixelize-settings", "target": "dithering"},
+    {"@type": "Selects", "source": "pixelize-settings", "target": "palette"},
+    {"@type": "DerivedFrom", "source": "grid", "target": "presto-screen", "properties": {"rule": "cellSize = floor(screenSize / gridSize)"}},
+    {"@type": "Consumes", "source": "pixelize-pipeline", "target": "source-image"},
+    {"@type": "Consumes", "source": "pixelize-pipeline", "target": "pixelize-settings"},
+    {"@type": "Produces", "source": "pixelize-pipeline", "target": "pixel-art"},
+    {"@type": "HasPart", "source": "pixel-art", "target": "palette"},
+    {"@type": "HasPart", "source": "pixel-art", "target": "frame", "properties": {"cardinality": "1..n"}},
+    {"@type": "HasProperty", "source": "pixel-art", "target": "size"},
+    {"@type": "Consumes", "source": "encoder", "target": "pixel-art"},
+    {"@type": "Produces", "source": "encoder", "target": "preview-png"},
+    {"@type": "Produces", "source": "encoder", "target": "presto-bin-format"},
+    {"@type": "DisplayedOn", "source": "presto-bin-format", "target": "presto-screen"},
+    {"@type": "ReadsFrom", "source": "cli", "target": "inbox"},
+    {"@type": "WritesTo", "source": "cli", "target": "outbox"},
+    {"@type": "Contains", "source": "inbox", "target": "source-image"},
+    {"@type": "Contains", "source": "outbox", "target": "preview-png"},
+    {"@type": "Contains", "source": "outbox", "target": "presto-bin-format"},
+    {"@type": "BelongsTo", "source": "rgb-color", "target": "layer", "properties": {"level": 1}},
+    {"@type": "BelongsTo", "source": "size", "target": "layer", "properties": {"level": 1}},
+    {"@type": "BelongsTo", "source": "pixelize-pipeline", "target": "layer", "properties": {"level": 3}},
+    {"@type": "BelongsTo", "source": "encoder", "target": "layer", "properties": {"level": 4}},
+    {"@type": "BelongsTo", "source": "cli", "target": "layer", "properties": {"level": 5}}
+  ]
+}
