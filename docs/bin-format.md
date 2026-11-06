@@ -21,7 +21,7 @@ frame i = durationMs (2 bytes) + width*height index bytes
 |---|---|---|---|---|
 | 0 | 4 | ASCII | magic | `P` `P` `X` `A` (0x50 0x50 0x58 0x41) |
 | 4 | 1 | u8 | formatVersion | `1` |
-| 5 | 1 | u8 | flags | `0`. Reserved; bit 0 will mean "loop animation". Players MUST ignore unknown bits |
+| 5 | 1 | u8 | flags | bit 0 = loop (set when frameCount > 1), other bits 0. Players MUST ignore unknown bits |
 | 6 | 2 | u16 | width | cells horizontally (= gridSize: 16, 32 or 64) |
 | 8 | 2 | u16 | height | cells vertically (= gridSize) |
 | 10 | 2 | u16 | paletteSize | number of palette entries, 1..256 |
@@ -88,5 +88,5 @@ For animation: read all frames (or stream them), draw frame *i*, wait `durationM
 
 ## Versioning
 
-Any change to header layout or meaning bumps `formatVersion`. Adding frames, using `flags`
-bit 0 or non-zero `durationMs` is already valid in v1.
+Any change to header layout or meaning bumps `formatVersion`. Multiple frames, `flags`
+bit 0 and non-zero `durationMs` are part of v1.

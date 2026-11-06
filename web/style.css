@@ -1,0 +1,76 @@
+:root {
+  --bg: #f4f4f7; --card: #ffffff; --text: #1d1d24; --muted: #6b6b78; --line: #dcdce4;
+  --accent: #e2483d; --accent-text: #ffffff; --chip: #ececf2; --danger: #b3261e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111116; --card: #1c1c24; --text: #ececf2; --muted: #9a9aa8; --line: #2e2e3a;
+    --accent: #ff5a4e; --accent-text: #111116; --chip: #2a2a35; --danger: #ff6b60;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.bar {
+  position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px;
+  align-items: center; justify-content: space-between; padding: 10px 16px;
+  background: var(--card); border-bottom: 1px solid var(--line);
+}
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.now { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#status { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 52vw; }
+main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.muted { color: var(--muted); font-size: 13px; }
+button {
+  font: inherit; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--chip); color: var(--text); cursor: pointer;
+}
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.danger { color: var(--danger); }
+input, select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; }
+input[type=checkbox], input[type=radio] { width: auto; }
+input[type=color] { padding: 2px; height: 34px; }
+.drop {
+  display: block; border: 2px dashed var(--line); border-radius: 10px; padding: 16px;
+  text-align: center; cursor: pointer; margin-bottom: 12px;
+}
+.drop.over { border-color: var(--accent); }
+.drop input { display: none; }
+.add-grid { display: grid; grid-template-columns: 272px 1fr; gap: 16px; }
+.preview-box canvas {
+  width: 256px; height: 256px; max-width: 100%; image-rendering: pixelated;
+  background: #000; border-radius: 6px; display: block;
+}
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; align-content: start; }
+.fields label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.fields label.check { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 15px; }
+.wide { grid-column: 1 / -1; }
+fieldset.modes { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 13px; padding: 3px 9px; border-radius: 999px; background: var(--chip); border: 1px solid transparent; }
+button.chip.on { border-color: var(--accent); color: var(--accent); }
+.lib-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.lib-head select { width: auto; max-width: 50%; }
+.items { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.item { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.item canvas { width: 96px; height: 96px; image-rendering: pixelated; border-radius: 6px; background: #000; }
+.item.broken { border-color: var(--danger); }
+.meta { display: grid; gap: 4px; min-width: 0; }
+.meta .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-actions { display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 640px) {
+  .add-grid { grid-template-columns: 1fr; }
+  .preview-box canvas { margin: 0 auto; }
+  .item { grid-template-columns: 72px 1fr; }
+  .item canvas { width: 72px; height: 72px; }
+  .item-actions { grid-column: 1 / -1; flex-direction: row; }
+  .item-actions button { flex: 1; }
+}

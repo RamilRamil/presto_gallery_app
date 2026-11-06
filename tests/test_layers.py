@@ -6,7 +6,7 @@ import pytest
 
 PACKAGE = Path(__file__).parent.parent / "src" / "presto_pic_loader"
 LEVEL = {"model": 0, "l1_primitives": 1, "l2_image_ops": 2, "l3_pipeline": 3,
-         "l4_encoders": 4, "l5_actions": 5}
+         "l4_encoders": 4, "l5_actions": 5, "golden": 5}
 # Allowed imports per layer: same/lower, plus the documented exception (plan.md):
 # L3/L4 may use L1 constants and tiny math directly; L5 only talks to L3/L4.
 ALLOWED = {
@@ -16,6 +16,7 @@ ALLOWED = {
     "l3_pipeline": {"model", "l1_primitives", "l2_image_ops"},
     "l4_encoders": {"model", "l1_primitives"},
     "l5_actions": {"model", "l3_pipeline", "l4_encoders"},
+    "golden": {"model", "l3_pipeline", "l4_encoders"},
 }
 IO_MODULES = {"os", "sys", "pathlib", "shutil", "glob", "subprocess", "argparse"}
 

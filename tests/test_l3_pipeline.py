@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 
-from conftest import png_bytes
+from imaging import png_bytes
 from presto_pic_loader.l1_primitives import PICO8_PALETTE
 from presto_pic_loader.l3_pipeline import load_source_image, make_settings, pixelize
 from presto_pic_loader.model import FitMode, RgbColor

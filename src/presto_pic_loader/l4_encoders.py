@@ -15,11 +15,13 @@ from .model import Frame, PixelArt, RgbColor
 MAGIC = b"PPXA"
 FORMAT_VERSION = 1
 HEADER = struct.Struct("<4sBBHHHHBB")  # 16 bytes
+FLAG_LOOP = 0x01  # set for animations: play frames in a loop
 FRAME_HEADER = struct.Struct("<H")
 
 
 def encode_presto_bin(art: PixelArt) -> bytes:
-    header = HEADER.pack(MAGIC, FORMAT_VERSION, 0, art.width, art.height,
+    flags = FLAG_LOOP if len(art.frames) > 1 else 0
+    header = HEADER.pack(MAGIC, FORMAT_VERSION, flags, art.width, art.height,
                          len(art.palette), len(art.frames), cell_size(art.width), 0)
     palette = bytes(channel for color in art.palette for channel in color)
     frames = b"".join(FRAME_HEADER.pack(f.duration_ms) + f.indices for f in art.frames)

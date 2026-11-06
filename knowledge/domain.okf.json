@@ -10,9 +10,18 @@
       "name": "SourceImage",
       "description": "Input picture of any size (PNG, JPEG or WebP) read from the inbox; converted to RGB, alpha flattened onto the background color.",
       "properties": {
-        "width": {"@type": "Integer", "value": "pixels"},
-        "height": {"@type": "Integer", "value": "pixels"},
-        "acceptedExtensions": {"@type": "Text", "value": ".png .jpg .jpeg .webp"}
+        "width": {
+          "@type": "Integer",
+          "value": "pixels"
+        },
+        "height": {
+          "@type": "Integer",
+          "value": "pixels"
+        },
+        "acceptedExtensions": {
+          "@type": "Text",
+          "value": ".png .jpg .jpeg .webp"
+        }
       }
     },
     {
@@ -21,9 +30,18 @@
       "name": "RgbColor",
       "description": "A color as three 0..255 channels (red, green, blue).",
       "properties": {
-        "red": {"@type": "Integer", "value": "0..255"},
-        "green": {"@type": "Integer", "value": "0..255"},
-        "blue": {"@type": "Integer", "value": "0..255"}
+        "red": {
+          "@type": "Integer",
+          "value": "0..255"
+        },
+        "green": {
+          "@type": "Integer",
+          "value": "0..255"
+        },
+        "blue": {
+          "@type": "Integer",
+          "value": "0..255"
+        }
       }
     },
     {
@@ -32,8 +50,14 @@
       "name": "Size",
       "description": "Width and height in pixels or cells.",
       "properties": {
-        "width": {"@type": "Integer", "value": ">= 1"},
-        "height": {"@type": "Integer", "value": ">= 1"}
+        "width": {
+          "@type": "Integer",
+          "value": ">= 1"
+        },
+        "height": {
+          "@type": "Integer",
+          "value": ">= 1"
+        }
       }
     },
     {
@@ -42,8 +66,17 @@
       "name": "Grid",
       "description": "Square cell grid that the image is reduced to; one cell becomes one pixel-art pixel.",
       "properties": {
-        "gridSize": {"@type": "Integer", "value": "16 | 32 | 64", "qualifiers": {"default": 32}},
-        "cellSize": {"@type": "Integer", "value": "floor(screenSize / gridSize): 15, 7 or 3 px"}
+        "gridSize": {
+          "@type": "Integer",
+          "value": "16 | 32 | 64",
+          "qualifiers": {
+            "default": 32
+          }
+        },
+        "cellSize": {
+          "@type": "Integer",
+          "value": "floor(screenSize / gridSize): 15, 7 or 3 px"
+        }
       }
     },
     {
@@ -52,7 +85,10 @@
       "name": "PrestoScreen",
       "description": "Pimoroni Presto display in normal mode.",
       "properties": {
-        "screenSize": {"@type": "Integer", "value": 240}
+        "screenSize": {
+          "@type": "Integer",
+          "value": 240
+        }
       }
     },
     {
@@ -61,8 +97,17 @@
       "name": "Palette",
       "description": "Ordered list of RgbColor (1..256 entries); pixel-art pixels store indices into it. Either adaptive (built from the image) or a named preset.",
       "properties": {
-        "colorCount": {"@type": "Integer", "value": "2..256", "qualifiers": {"default": 16}},
-        "paletteName": {"@type": "Text", "value": "adaptive | pico-8"}
+        "colorCount": {
+          "@type": "Integer",
+          "value": "2..256",
+          "qualifiers": {
+            "default": 16
+          }
+        },
+        "paletteName": {
+          "@type": "Text",
+          "value": "adaptive | pico-8"
+        }
       }
     },
     {
@@ -71,7 +116,10 @@
       "name": "Pico8Palette",
       "description": "Fixed 16-color PICO-8 preset palette.",
       "properties": {
-        "colorCount": {"@type": "Integer", "value": 16}
+        "colorCount": {
+          "@type": "Integer",
+          "value": 16
+        }
       }
     },
     {
@@ -80,7 +128,13 @@
       "name": "FitMode",
       "description": "How a non-square SourceImage is mapped to the square Grid: crop (center crop to square) or fit (scale to fit, pad with background color).",
       "properties": {
-        "values": {"@type": "Text", "value": "crop | fit", "qualifiers": {"default": "crop"}}
+        "values": {
+          "@type": "Text",
+          "value": "crop | fit",
+          "qualifiers": {
+            "default": "crop"
+          }
+        }
       }
     },
     {
@@ -89,7 +143,13 @@
       "name": "Dithering",
       "description": "Floyd-Steinberg error diffusion while mapping colors to the Palette; on or off.",
       "properties": {
-        "dither": {"@type": "Boolean", "value": "true | false", "qualifiers": {"default": false}}
+        "dither": {
+          "@type": "Boolean",
+          "value": "true | false",
+          "qualifiers": {
+            "default": false
+          }
+        }
       }
     },
     {
@@ -98,12 +158,30 @@
       "name": "PixelizeSettings",
       "description": "Immutable set of conversion options passed to the pixelize pipeline.",
       "properties": {
-        "gridSize": {"@type": "Integer", "value": "16 | 32 | 64"},
-        "colorCount": {"@type": "Integer", "value": "2..256"},
-        "paletteName": {"@type": "Text", "value": "adaptive | pico-8"},
-        "fitMode": {"@type": "Text", "value": "crop | fit"},
-        "dither": {"@type": "Boolean", "value": "true | false"},
-        "backgroundColor": {"@type": "Text", "value": "RgbColor, default black"}
+        "gridSize": {
+          "@type": "Integer",
+          "value": "16 | 32 | 64"
+        },
+        "colorCount": {
+          "@type": "Integer",
+          "value": "2..256"
+        },
+        "paletteName": {
+          "@type": "Text",
+          "value": "adaptive | pico-8"
+        },
+        "fitMode": {
+          "@type": "Text",
+          "value": "crop | fit"
+        },
+        "dither": {
+          "@type": "Boolean",
+          "value": "true | false"
+        },
+        "backgroundColor": {
+          "@type": "Text",
+          "value": "RgbColor, default black"
+        }
       }
     },
     {
@@ -112,8 +190,14 @@
       "name": "Frame",
       "description": "One image of PixelArt: gridSize x gridSize palette indices in row-major order plus a display duration. MVP produces exactly one frame.",
       "properties": {
-        "indices": {"@type": "Bytes", "value": "width*height bytes, row-major"},
-        "durationMs": {"@type": "Integer", "value": "0..65535, 0 = static"}
+        "indices": {
+          "@type": "Bytes",
+          "value": "width*height bytes, row-major"
+        },
+        "durationMs": {
+          "@type": "Integer",
+          "value": "0..65535, 0 = static"
+        }
       }
     },
     {
@@ -122,9 +206,18 @@
       "name": "PixelArt",
       "description": "Format-independent result of pixelize: size, Palette and a list of Frame.",
       "properties": {
-        "width": {"@type": "Integer", "value": "= gridSize"},
-        "height": {"@type": "Integer", "value": "= gridSize"},
-        "frameCount": {"@type": "Integer", "value": ">= 1"}
+        "width": {
+          "@type": "Integer",
+          "value": "= gridSize"
+        },
+        "height": {
+          "@type": "Integer",
+          "value": "= gridSize"
+        },
+        "frameCount": {
+          "@type": "Integer",
+          "value": ">= 1"
+        }
       }
     },
     {
@@ -140,7 +233,13 @@
       "name": "PreviewPng",
       "description": "PNG for human viewing: each cell drawn as a large square block.",
       "properties": {
-        "previewScale": {"@type": "Integer", "value": "pixels per cell", "qualifiers": {"default": 8}}
+        "previewScale": {
+          "@type": "Integer",
+          "value": "pixels per cell",
+          "qualifiers": {
+            "default": 8
+          }
+        }
       }
     },
     {
@@ -149,9 +248,18 @@
       "name": "PrestoBinFormat",
       "description": "Versioned little-endian binary file for the Presto player: header, palette, frames. Documented in docs/bin-format.md.",
       "properties": {
-        "magic": {"@type": "Text", "value": "PPXA"},
-        "formatVersion": {"@type": "Integer", "value": 1},
-        "fileExtension": {"@type": "Text", "value": ".bin"}
+        "magic": {
+          "@type": "Text",
+          "value": "PPXA"
+        },
+        "formatVersion": {
+          "@type": "Integer",
+          "value": 1
+        },
+        "fileExtension": {
+          "@type": "Text",
+          "value": ".bin"
+        }
       }
     },
     {
@@ -166,21 +274,36 @@
       "@type": "LocationEntity",
       "name": "Inbox",
       "description": "Folder inbox/ where the user drops SourceImage files.",
-      "properties": {"path": {"@type": "Text", "value": "inbox/"}}
+      "properties": {
+        "path": {
+          "@type": "Text",
+          "value": "inbox/"
+        }
+      }
     },
     {
       "@id": "outbox",
       "@type": "LocationEntity",
       "name": "Outbox",
       "description": "Folder outbox/ receiving <name>.preview.png and <name>.bin for each processed SourceImage.",
-      "properties": {"path": {"@type": "Text", "value": "outbox/"}}
+      "properties": {
+        "path": {
+          "@type": "Text",
+          "value": "outbox/"
+        }
+      }
     },
     {
       "@id": "cli",
       "@type": "ProcessEntity",
       "name": "Cli",
       "description": "Single command that processes every SourceImage in the Inbox with the given PixelizeSettings.",
-      "properties": {"command": {"@type": "Text", "value": "python -m presto_pic_loader [options]"}}
+      "properties": {
+        "command": {
+          "@type": "Text",
+          "value": "python -m presto_pic_loader [options]"
+        }
+      }
     },
     {
       "@id": "layer",
@@ -188,38 +311,444 @@
       "name": "Layer",
       "description": "Stratified-design level; code in a layer calls only its own or lower layers. 1 primitives, 2 image operations, 3 pipeline, 4 encoders, 5 actions.",
       "properties": {
-        "level": {"@type": "Integer", "value": "1..5"},
-        "isPure": {"@type": "Boolean", "value": "true for 1..4, false for 5"}
+        "level": {
+          "@type": "Integer",
+          "value": "1..5"
+        },
+        "isPure": {
+          "@type": "Boolean",
+          "value": "true for 1..4, false for 5"
+        }
+      }
+    },
+    {
+      "@id": "media-item",
+      "@type": "DataEntity",
+      "name": "MediaItem",
+      "description": "One stored PrestoBinFormat file on the device plus its metadata.",
+      "properties": {
+        "mediaId": {
+          "@type": "Text",
+          "value": "8 hex chars"
+        },
+        "name": {
+          "@type": "Text",
+          "value": "1..64 chars"
+        },
+        "tags": {
+          "@type": "List",
+          "value": "Tag names"
+        },
+        "frameCount": {
+          "@type": "Integer",
+          "value": ">= 1"
+        },
+        "gridSize": {
+          "@type": "Integer",
+          "value": "16 | 32 | 64"
+        },
+        "byteSize": {
+          "@type": "Integer",
+          "value": "bytes"
+        },
+        "createdAt": {
+          "@type": "Integer",
+          "value": "unix seconds"
+        }
+      }
+    },
+    {
+      "@id": "tag",
+      "@type": "DataEntity",
+      "name": "Tag",
+      "description": "Normalized label (trimmed, lowercased, 1..24 chars) attached to MediaItems.",
+      "properties": {
+        "label": {
+          "@type": "Text",
+          "value": "1..24 chars"
+        }
+      }
+    },
+    {
+      "@id": "catalog",
+      "@type": "DataEntity",
+      "name": "Catalog",
+      "description": "All MediaItems on the device; persisted atomically as catalog.json.",
+      "properties": {
+        "formatVersion": {
+          "@type": "Integer",
+          "value": 1
+        }
+      }
+    },
+    {
+      "@id": "show-mode",
+      "@type": "EnumEntity",
+      "name": "ShowMode",
+      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), tags (any of selected).",
+      "properties": {
+        "values": {
+          "@type": "Text",
+          "value": "all | images | animations | tags",
+          "qualifiers": {
+            "default": "all"
+          }
+        }
+      }
+    },
+    {
+      "@id": "device-settings",
+      "@type": "DataEntity",
+      "name": "DeviceSettings",
+      "description": "Persisted playback settings on the device.",
+      "properties": {
+        "showMode": {
+          "@type": "Text",
+          "value": "ShowMode"
+        },
+        "selectedTags": {
+          "@type": "List",
+          "value": "Tag names"
+        },
+        "slideSeconds": {
+          "@type": "Integer",
+          "value": "3..600",
+          "qualifiers": {
+            "default": 10
+          }
+        },
+        "shuffle": {
+          "@type": "Boolean",
+          "value": "true | false",
+          "qualifiers": {
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "@id": "playlist",
+      "@type": "DataEntity",
+      "name": "Playlist",
+      "description": "Ordered list of mediaId derived from Catalog and DeviceSettings.",
+      "properties": {
+        "mediaIds": {
+          "@type": "List",
+          "value": "mediaId"
+        }
+      }
+    },
+    {
+      "@id": "media-storage",
+      "@type": "LocationEntity",
+      "name": "MediaStorage",
+      "description": "Device storage root: microSD if mounted, otherwise internal flash.",
+      "properties": {
+        "path": {
+          "@type": "Text",
+          "value": "/sd/gallery or /gallery"
+        }
+      }
+    },
+    {
+      "@id": "device-app",
+      "@type": "ProcessEntity",
+      "name": "DeviceApp",
+      "description": "MicroPython application on the Presto: Wi-Fi, HttpApi, storage, playback, touch.",
+      "properties": {}
+    },
+    {
+      "@id": "http-api",
+      "@type": "InterfaceEntity",
+      "name": "HttpApi",
+      "description": "JSON/binary HTTP interface served by the DeviceApp for the WebUi.",
+      "properties": {
+        "basePath": {
+          "@type": "Text",
+          "value": "/api"
+        }
+      }
+    },
+    {
+      "@id": "web-ui",
+      "@type": "ProcessEntity",
+      "name": "WebUi",
+      "description": "Browser application served by the DeviceApp: converts images/GIFs into PixelArt, manages the Catalog and DeviceSettings.",
+      "properties": {}
+    },
+    {
+      "@id": "golden-vector",
+      "@type": "DataEntity",
+      "name": "GoldenVector",
+      "description": "Test case shared by all producers: grid-sized RGB pixels + PixelizeSettings -> expected .bin bytes.",
+      "properties": {
+        "fileName": {
+          "@type": "Text",
+          "value": "tests/golden/*.json"
+        }
       }
     }
   ],
   "relations": [
-    {"@type": "HasProperty", "source": "palette", "target": "rgb-color", "properties": {"cardinality": "1..256"}},
-    {"@type": "IsA", "source": "pico-8-palette", "target": "palette"},
-    {"@type": "HasPart", "source": "pixelize-settings", "target": "grid"},
-    {"@type": "HasPart", "source": "pixelize-settings", "target": "fit-mode"},
-    {"@type": "HasPart", "source": "pixelize-settings", "target": "dithering"},
-    {"@type": "Selects", "source": "pixelize-settings", "target": "palette"},
-    {"@type": "DerivedFrom", "source": "grid", "target": "presto-screen", "properties": {"rule": "cellSize = floor(screenSize / gridSize)"}},
-    {"@type": "Consumes", "source": "pixelize-pipeline", "target": "source-image"},
-    {"@type": "Consumes", "source": "pixelize-pipeline", "target": "pixelize-settings"},
-    {"@type": "Produces", "source": "pixelize-pipeline", "target": "pixel-art"},
-    {"@type": "HasPart", "source": "pixel-art", "target": "palette"},
-    {"@type": "HasPart", "source": "pixel-art", "target": "frame", "properties": {"cardinality": "1..n"}},
-    {"@type": "HasProperty", "source": "pixel-art", "target": "size"},
-    {"@type": "Consumes", "source": "encoder", "target": "pixel-art"},
-    {"@type": "Produces", "source": "encoder", "target": "preview-png"},
-    {"@type": "Produces", "source": "encoder", "target": "presto-bin-format"},
-    {"@type": "DisplayedOn", "source": "presto-bin-format", "target": "presto-screen"},
-    {"@type": "ReadsFrom", "source": "cli", "target": "inbox"},
-    {"@type": "WritesTo", "source": "cli", "target": "outbox"},
-    {"@type": "Contains", "source": "inbox", "target": "source-image"},
-    {"@type": "Contains", "source": "outbox", "target": "preview-png"},
-    {"@type": "Contains", "source": "outbox", "target": "presto-bin-format"},
-    {"@type": "BelongsTo", "source": "rgb-color", "target": "layer", "properties": {"level": 1}},
-    {"@type": "BelongsTo", "source": "size", "target": "layer", "properties": {"level": 1}},
-    {"@type": "BelongsTo", "source": "pixelize-pipeline", "target": "layer", "properties": {"level": 3}},
-    {"@type": "BelongsTo", "source": "encoder", "target": "layer", "properties": {"level": 4}},
-    {"@type": "BelongsTo", "source": "cli", "target": "layer", "properties": {"level": 5}}
+    {
+      "@type": "HasProperty",
+      "source": "palette",
+      "target": "rgb-color",
+      "properties": {
+        "cardinality": "1..256"
+      }
+    },
+    {
+      "@type": "IsA",
+      "source": "pico-8-palette",
+      "target": "palette"
+    },
+    {
+      "@type": "HasPart",
+      "source": "pixelize-settings",
+      "target": "grid"
+    },
+    {
+      "@type": "HasPart",
+      "source": "pixelize-settings",
+      "target": "fit-mode"
+    },
+    {
+      "@type": "HasPart",
+      "source": "pixelize-settings",
+      "target": "dithering"
+    },
+    {
+      "@type": "Selects",
+      "source": "pixelize-settings",
+      "target": "palette"
+    },
+    {
+      "@type": "DerivedFrom",
+      "source": "grid",
+      "target": "presto-screen",
+      "properties": {
+        "rule": "cellSize = floor(screenSize / gridSize)"
+      }
+    },
+    {
+      "@type": "Consumes",
+      "source": "pixelize-pipeline",
+      "target": "source-image"
+    },
+    {
+      "@type": "Consumes",
+      "source": "pixelize-pipeline",
+      "target": "pixelize-settings"
+    },
+    {
+      "@type": "Produces",
+      "source": "pixelize-pipeline",
+      "target": "pixel-art"
+    },
+    {
+      "@type": "HasPart",
+      "source": "pixel-art",
+      "target": "palette"
+    },
+    {
+      "@type": "HasPart",
+      "source": "pixel-art",
+      "target": "frame",
+      "properties": {
+        "cardinality": "1..n"
+      }
+    },
+    {
+      "@type": "HasProperty",
+      "source": "pixel-art",
+      "target": "size"
+    },
+    {
+      "@type": "Consumes",
+      "source": "encoder",
+      "target": "pixel-art"
+    },
+    {
+      "@type": "Produces",
+      "source": "encoder",
+      "target": "preview-png"
+    },
+    {
+      "@type": "Produces",
+      "source": "encoder",
+      "target": "presto-bin-format"
+    },
+    {
+      "@type": "DisplayedOn",
+      "source": "presto-bin-format",
+      "target": "presto-screen"
+    },
+    {
+      "@type": "ReadsFrom",
+      "source": "cli",
+      "target": "inbox"
+    },
+    {
+      "@type": "WritesTo",
+      "source": "cli",
+      "target": "outbox"
+    },
+    {
+      "@type": "Contains",
+      "source": "inbox",
+      "target": "source-image"
+    },
+    {
+      "@type": "Contains",
+      "source": "outbox",
+      "target": "preview-png"
+    },
+    {
+      "@type": "Contains",
+      "source": "outbox",
+      "target": "presto-bin-format"
+    },
+    {
+      "@type": "BelongsTo",
+      "source": "rgb-color",
+      "target": "layer",
+      "properties": {
+        "level": 1
+      }
+    },
+    {
+      "@type": "BelongsTo",
+      "source": "size",
+      "target": "layer",
+      "properties": {
+        "level": 1
+      }
+    },
+    {
+      "@type": "BelongsTo",
+      "source": "pixelize-pipeline",
+      "target": "layer",
+      "properties": {
+        "level": 3
+      }
+    },
+    {
+      "@type": "BelongsTo",
+      "source": "encoder",
+      "target": "layer",
+      "properties": {
+        "level": 4
+      }
+    },
+    {
+      "@type": "BelongsTo",
+      "source": "cli",
+      "target": "layer",
+      "properties": {
+        "level": 5
+      }
+    },
+    {
+      "@type": "HasPart",
+      "source": "catalog",
+      "target": "media-item",
+      "properties": {
+        "cardinality": "0..n"
+      }
+    },
+    {
+      "@type": "HasProperty",
+      "source": "media-item",
+      "target": "tag",
+      "properties": {
+        "cardinality": "0..n"
+      }
+    },
+    {
+      "@type": "Stores",
+      "source": "media-item",
+      "target": "presto-bin-format"
+    },
+    {
+      "@type": "Contains",
+      "source": "media-storage",
+      "target": "catalog"
+    },
+    {
+      "@type": "HasPart",
+      "source": "device-settings",
+      "target": "show-mode"
+    },
+    {
+      "@type": "Selects",
+      "source": "device-settings",
+      "target": "tag"
+    },
+    {
+      "@type": "Consumes",
+      "source": "playlist",
+      "target": "catalog"
+    },
+    {
+      "@type": "Consumes",
+      "source": "playlist",
+      "target": "device-settings"
+    },
+    {
+      "@type": "Plays",
+      "source": "device-app",
+      "target": "playlist"
+    },
+    {
+      "@type": "DisplayedOn",
+      "source": "device-app",
+      "target": "presto-screen"
+    },
+    {
+      "@type": "Serves",
+      "source": "device-app",
+      "target": "http-api"
+    },
+    {
+      "@type": "Serves",
+      "source": "device-app",
+      "target": "web-ui"
+    },
+    {
+      "@type": "WritesTo",
+      "source": "device-app",
+      "target": "media-storage"
+    },
+    {
+      "@type": "Uses",
+      "source": "web-ui",
+      "target": "http-api"
+    },
+    {
+      "@type": "Consumes",
+      "source": "web-ui",
+      "target": "source-image"
+    },
+    {
+      "@type": "Consumes",
+      "source": "web-ui",
+      "target": "pixelize-settings"
+    },
+    {
+      "@type": "Produces",
+      "source": "web-ui",
+      "target": "presto-bin-format"
+    },
+    {
+      "@type": "Verifies",
+      "source": "golden-vector",
+      "target": "pixelize-pipeline"
+    },
+    {
+      "@type": "Verifies",
+      "source": "golden-vector",
+      "target": "web-ui"
+    }
   ]
 }

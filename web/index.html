@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Presto Gallery</title>
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Presto Gallery</h1>
+    <div class="now">
+      <button id="prev" type="button" aria-label="Предыдущая">◀</button>
+      <span id="status">…</span>
+      <button id="next" type="button" aria-label="Следующая">▶</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card" id="add">
+      <h2>Добавить</h2>
+      <label class="drop" id="drop">
+        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+        <span id="drop-text">Выбери картинку или GIF (или перетащи сюда)</span>
+      </label>
+      <div class="add-grid">
+        <div class="preview-box">
+          <canvas id="preview" width="256" height="256"></canvas>
+          <p id="preview-info" class="muted">Нет файла</p>
+        </div>
+        <form id="settings-form" class="fields">
+          <label>Сетка
+            <select name="gridSize">
+              <option value="16">16 × 16</option>
+              <option value="32" selected>32 × 32</option>
+              <option value="64">64 × 64</option>
+            </select>
+          </label>
+          <label>Палитра
+            <select name="paletteName">
+              <option value="adaptive" selected>Подобрать цвета</option>
+              <option value="pico-8">PICO-8</option>
+            </select>
+          </label>
+          <label id="colors-field">Цветов
+            <input name="colorCount" type="number" min="2" max="256" value="16">
+          </label>
+          <label>Вписать
+            <select name="fitMode">
+              <option value="crop" selected>Обрезать до квадрата</option>
+              <option value="fit">Целиком, с полями</option>
+            </select>
+          </label>
+          <label>Фон
+            <input name="backgroundColor" type="color" value="#000000">
+          </label>
+          <label class="check"><input name="dither" type="checkbox"> Дизеринг</label>
+          <label class="wide">Название
+            <input name="name" type="text" maxlength="64" placeholder="по имени файла">
+          </label>
+          <label class="wide">Теги (через запятую)
+            <input name="tags" type="text" placeholder="коты, зима" list="tag-list">
+          </label>
+          <div class="chips wide" id="tag-suggest"></div>
+        </form>
+      </div>
+      <div class="actions">
+        <button id="upload" type="button" class="primary" disabled>Загрузить на Presto</button>
+        <span id="upload-msg" class="muted" role="status"></span>
+      </div>
+    </section>
+
+    <section class="card" id="show">
+      <h2>Что показывать</h2>
+      <form id="mode-form" class="fields">
+        <fieldset class="wide modes">
+          <label class="check"><input type="radio" name="showMode" value="all"> Всё</label>
+          <label class="check"><input type="radio" name="showMode" value="images"> Картинки</label>
+          <label class="check"><input type="radio" name="showMode" value="animations"> Гифки</label>
+          <label class="check"><input type="radio" name="showMode" value="tags"> По тегам</label>
+        </fieldset>
+        <div class="chips wide" id="mode-tags"></div>
+        <label>Секунд на слайд
+          <input name="slideSeconds" type="number" min="3" max="600" value="10">
+        </label>
+        <label class="check"><input name="shuffle" type="checkbox"> Перемешать</label>
+      </form>
+      <div class="actions">
+        <button id="save-mode" type="button" class="primary">Сохранить</button>
+        <span id="mode-msg" class="muted" role="status"></span>
+      </div>
+    </section>
+
+    <section class="card" id="library">
+      <div class="lib-head">
+        <h2>Библиотека <span id="lib-count" class="muted"></span></h2>
+        <select id="lib-filter" aria-label="Фильтр по тегу"><option value="">Все теги</option></select>
+      </div>
+      <p id="storage" class="muted"></p>
+      <ul id="items" class="items"></ul>
+    </section>
+  </main>
+
+  <template id="item-template">
+    <li class="item">
+      <canvas width="96" height="96"></canvas>
+      <div class="meta">
+        <strong class="name"></strong>
+        <span class="muted kind"></span>
+        <div class="chips tags"></div>
+      </div>
+      <div class="item-actions">
+        <button type="button" data-action="show">Показать</button>
+        <button type="button" data-action="edit">Изменить</button>
+        <button type="button" data-action="delete" class="danger">Удалить</button>
+      </div>
+    </li>
+  </template>
+  <datalist id="tag-list"></datalist>
+  <script type="module" src="/web/js/l5-ui.js"></script>
+</body>
+</html>

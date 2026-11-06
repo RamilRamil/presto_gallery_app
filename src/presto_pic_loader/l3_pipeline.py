@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from .l1_primitives import GRID_SIZES, PICO8_PALETTE, parse_hex_color
 from .l2_image_ops import (
-    crop_to_square, decode_image, downscale_to_grid, fit_to_square,
-    quantize_adaptive, quantize_to_palette, to_rgb,
+    crop_to_square, decode_image, downscale_to_grid, fit_to_square, image_pixels,
+    quantize_frames, to_rgb,
 )
 from .model import FitMode, Frame, PixelArt, PixelizeSettings, RgbColor, SourceImage
 
@@ -42,15 +42,20 @@ def load_source_image(name: str, data: bytes, settings: PixelizeSettings) -> Sou
     return SourceImage(name, to_rgb(decode_image(data), settings.background_color))
 
 
+def pixelize_grid(frames: list[list[RgbColor]], durations_ms: list[int],
+                  settings: PixelizeSettings) -> PixelArt:
+    """Stage B: grid-sized RGB frames -> PixelArt (exact, shared with the browser)."""
+    size = settings.grid_size
+    palette, indices = quantize_frames(frames, size, settings.color_count,
+                                       settings.preset_palette, settings.dither)
+    return PixelArt(size, size, palette,
+                    tuple(Frame(i, d) for i, d in zip(indices, durations_ms)))
+
+
 def pixelize(source: SourceImage, settings: PixelizeSettings) -> PixelArt:
     if settings.fit_mode is FitMode.CROP:
         square = crop_to_square(source.image)
     else:
         square = fit_to_square(source.image, settings.background_color)
     small = downscale_to_grid(square, settings.grid_size)
-    if settings.preset_palette is not None:
-        palette = settings.preset_palette
-        indices = quantize_to_palette(small, palette, settings.dither)
-    else:
-        palette, indices = quantize_adaptive(small, settings.color_count, settings.dither)
-    return PixelArt(settings.grid_size, settings.grid_size, palette, (Frame(indices, 0),))
+    return pixelize_grid([image_pixels(small)], [0], settings)

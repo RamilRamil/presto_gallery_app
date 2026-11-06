@@ -6,3 +6,6 @@ inbox/*
 !inbox/.gitkeep
 outbox/*
 !outbox/.gitkeep
+device/secrets.py
+.sim-storage/
+node_modules/
