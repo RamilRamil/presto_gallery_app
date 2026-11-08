@@ -2,7 +2,7 @@
 
 from .l1_primitives import clamp, lcg_next, new_media_id, normalize_tags
 from .l2_catalog import (
-    add_item, all_tags, filter_by_mode, find_item, remove_item, rename_item, set_tags,
+    add_item, all_tags, filter_by_mode, find_item, remove_item, rename_item, set_flag, set_tags,
 )
 from .model import SHOW_MODES, device_state
 
@@ -16,6 +16,10 @@ def allocate_media_id(catalog, seed):
 
 def tag_counts(catalog):
     return all_tags(catalog)
+
+
+def item_by_id(catalog, media_id):
+    return find_item(catalog, media_id)
 
 
 def validate_settings(raw):
@@ -76,10 +80,16 @@ def slide_plan(frame_durations_ms, slide_seconds):
     return {"loops": max(1, -(-slide_ms // loop_ms)), "holdMs": 0}
 
 
+def slide_limit_ms(playlist, slide_seconds):
+    """How long a Scene may run; None when it is the only item, so it never restarts."""
+    return None if len(playlist) == 1 else slide_seconds * 1000
+
+
 def apply_command(state, command, seed):
     """Pure entry for every change; returns the new device state.
     command["op"]: upload(item) | rename(mediaId, name) | setTags(mediaId, tags) | remove(mediaId)
-                   | setSettings(settings) | show(mediaId) | next | prev"""
+                   | setSettings(settings) | show(mediaId) | flag(mediaId, error) | unflag(mediaId)
+                   | next | prev"""
     catalog, settings = state["catalog"], state["settings"]
     playlist, index = state["playlist"], state["index"]
     op = command["op"]
@@ -99,13 +109,23 @@ def apply_command(state, command, seed):
     elif op == "setSettings":
         settings = validate_settings(command["settings"])
     elif op == "show":
-        if find_item(catalog, command["mediaId"]) is None:
+        item = find_item(catalog, command["mediaId"])
+        if item is None:
             raise KeyError(command["mediaId"])
+        if item["flagged"]:
+            raise ValueError("scene is flagged, enable it first")
         target = command["mediaId"]
+    elif op == "flag":
+        catalog = set_flag(catalog, command["mediaId"], True, command["error"])
+    elif op == "unflag":
+        catalog = set_flag(catalog, command["mediaId"], False, None)
     else:
         raise ValueError("unknown command " + op)
     new_playlist = build_playlist(catalog, settings, seed)
-    new_index = reposition(playlist, index, new_playlist)
+    if op == "flag":
+        new_index = index % len(new_playlist) if new_playlist else 0  # the next item moved here
+    else:
+        new_index = reposition(playlist, index, new_playlist)
     if target is not None:
         if target not in new_playlist:
             new_playlist = new_playlist + [target]  # show now even outside the ShowMode

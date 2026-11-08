@@ -1,6 +1,9 @@
 # LAYER 2 (calculations): pure Catalog operations. Every function returns a new catalog.
 
 from .l1_primitives import normalize_name, normalize_tags
+from .model import KIND_SCENE
+
+ERROR_MAX_LENGTH = 200
 
 
 def find_item(catalog, media_id):
@@ -49,6 +52,17 @@ def set_tags(catalog, media_id, tags):
     return _update(catalog, media_id, "tags", normalize_tags(tags))
 
 
+def set_flag(catalog, media_id, flagged, error):
+    """Flag a Scene (it leaves the Playlist) or clear its flag; pictures cannot be flagged."""
+    item = find_item(catalog, media_id)
+    if item is None:
+        raise KeyError(media_id)
+    if item["kind"] != KIND_SCENE:
+        raise ValueError("only a scene can be flagged")
+    catalog = _update(catalog, media_id, "flagged", flagged)
+    return _update(catalog, media_id, "error", error[:ERROR_MAX_LENGTH] if error else None)
+
+
 def all_tags(catalog):
     """[{label, count}] sorted by label."""
     counts = {}
@@ -59,11 +73,13 @@ def all_tags(catalog):
 
 
 def filter_by_mode(catalog, show_mode, selected_tags):
-    items = catalog["items"]
+    items = [i for i in catalog["items"] if not i["flagged"]]
     if show_mode == "images":
         return [i for i in items if i["frameCount"] == 1]
     if show_mode == "animations":
         return [i for i in items if i["frameCount"] > 1]
+    if show_mode == "scenes":
+        return [i for i in items if i["kind"] == KIND_SCENE]
     if show_mode == "tags":
         wanted = set(selected_tags)
         return [i for i in items if wanted.intersection(i["tags"])]

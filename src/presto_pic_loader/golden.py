@@ -44,6 +44,9 @@ CASES = [
     ("noise-32-adaptive2-dither", dict(grid_size=32, color_count=2, dither=True),
      [_noise(32, 3)], [0]),
     ("few-colors-16-adaptive8", dict(grid_size=16, color_count=8), [_few_colors(16)], [0]),
+    ("gradient-40-adaptive32", dict(grid_size=40, color_count=32), [_gradient(40)], [0]),
+    ("noise-80-pico8-dither", dict(grid_size=80, palette_name="pico-8", dither=True),
+     [_noise(80, 11)], [0]),
     ("animation-16-adaptive4", dict(grid_size=16, color_count=4),
      [_gradient(16, 0), _gradient(16, 80), _noise(16, 1)], [100, 50, 200]),
 ]

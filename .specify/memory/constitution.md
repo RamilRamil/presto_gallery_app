@@ -1,6 +1,9 @@
 <!--
 Sync Impact Report
-- Version: 1.0.0 → 1.1.0 (MINOR: three runtimes, Principle VI added)
+- Version: 1.1.0 → 1.2.0 (MINOR: Architecture Constraints widened to full-screen grid sizes)
+- Modified: Architecture Constraints (grid sizes)
+- Templates: no change
+- Previous: 1.0.0 → 1.1.0 (MINOR: three runtimes, Principle VI added)
 - Modified: I (applies per runtime), III (node:test + CPython tests for device logic),
   V (MicroPython device app and dependency-free browser JS allowed)
 - Added: VI Shared Format Contract
@@ -83,7 +86,8 @@ output formats or add animation without touching the pipeline.
 
 ## Architecture Constraints
 
-- Target: Pimoroni Presto, 240×240 screen; grid sizes 16/32/64 (32 → 7 px cells).
+- Target: Pimoroni Presto, 240×240 screen; grid sizes 16/32/40/60/64/80/120/240
+  (16, 40, 60, 80, 120 and 240 fill the screen; 32 → 7 px cells, 8 px margin).
 - Settings are immutable data objects; the pipeline is a composition of calculations.
 
 ## Development Workflow
@@ -97,4 +101,4 @@ This constitution overrides other practices. Amendments are made via `/speckit-c
 with a semantic version bump (MAJOR: principle removed/redefined; MINOR: principle added;
 PATCH: wording). Every plan's Constitution Check MUST verify Principles I–VI.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-06
+**Version**: 1.2.0 | **Ratified**: 2026-11-06 | **Last Amended**: 2026-11-08

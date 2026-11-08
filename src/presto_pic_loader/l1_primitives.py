@@ -4,7 +4,7 @@ from __future__ import annotations
 from .model import RgbColor, Size
 
 PRESTO_SCREEN_SIZE = 240
-GRID_SIZES = (16, 32, 64)
+GRID_SIZES = (16, 32, 40, 60, 64, 80, 120, 240)
 
 PICO8_PALETTE: tuple[RgbColor, ...] = tuple(
     RgbColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))

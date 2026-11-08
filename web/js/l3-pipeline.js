@@ -1,15 +1,25 @@
 // LAYER 3 (calculations): pixelize pipeline. Port of src/presto_pic_loader/l3_pipeline.py.
 // PixelArt = {width, height, palette: [RgbColor], frames: [{indices: Uint8Array, durationMs}]}.
 
-import { GRID_SIZES, PICO8_PALETTE, parseHexColor } from './l1-primitives.js';
 import {
-  boxDownscale, cropRgb, decodeGif, fitRgb, flattenRgba, quantizeFrames, rgbPixels,
+  GRID_SIZES, PICO8_PALETTE, cropWindow, parseHexColor, screenOffset,
+} from './l1-primitives.js';
+import {
+  boxDownscale, cropRgb, cropRgbWindow, decodeGif, fitRgb, fitRgbWindow, flattenRgba, quantizeFrames,
+  rgbPixels,
 } from './l2-image-ops.js';
+
+export {
+  MAX_CROP_ZOOM, cropWindow, defaultCropView, panCropView, zoomCropView,
+} from './l1-primitives.js';
 
 export const PRESET_PALETTES = { 'pico-8': PICO8_PALETTE };
 export const ADAPTIVE = 'adaptive';
 export const MAX_FRAMES = 256;
 export const MAX_BIN_BYTES = 1024 * 1024;
+export const MAX_SCENE_BYTES = 64 * 1024;
+export const RECOGNIZABLE_GRID = 120;
+const LARGEST_BIN_HEAD = 16 + 3 * 256;
 export const MIN_FRAME_MS = 20;
 export const DEFAULT_FRAME_MS = 100;
 
@@ -55,12 +65,19 @@ export function pixelizeGrid(frames, durationsMs, settings) {
   };
 }
 
-/** Stage A + B: RGB images (any size) -> PixelArt. */
-export function pixelize(images, durationsMs, settings) {
-  const grids = images.map((image) => {
-    const square = settings.fitMode === 'crop' ? cropRgb(image) : fitRgb(image, settings.backgroundColor);
-    return rgbPixels(boxDownscale(square, settings.gridSize));
-  });
+function toSquare(image, settings, view) {
+  if (settings.fitMode !== 'crop') {
+    return view
+      ? fitRgbWindow(image, cropWindow(view, image.width, image.height, true), settings.backgroundColor)
+      : fitRgb(image, settings.backgroundColor);
+  }
+  return view ? cropRgbWindow(image, cropWindow(view, image.width, image.height)) : cropRgb(image);
+}
+
+/** Stage A + B: RGB images (any size) -> PixelArt. `view` is the CropView, null for the default. */
+export function pixelize(images, durationsMs, settings, view = null) {
+  const grids = images.map((image) => rgbPixels(boxDownscale(toSquare(image, settings, view),
+    settings.gridSize)));
   return pixelizeGrid(grids, durationsMs, settings);
 }
 
@@ -68,8 +85,13 @@ export function frameDuration(delayMs) {
   return delayMs > 0 ? Math.max(MIN_FRAME_MS, delayMs) : DEFAULT_FRAME_MS;
 }
 
+/** First frame of a GIF as an RgbaImage, for showing the picture while choosing a CropView. */
+export function gifFirstFrame(bytes) {
+  return decodeGif(bytes).frames[0].image;
+}
+
 /** kind 'gif': input is GIF bytes; kind 'image': input is an RgbaImage. */
-export function pixelizeFile(kind, input, settings) {
+export function pixelizeFile(kind, input, settings, view = null) {
   const background = settings.backgroundColor;
   if (kind === 'gif') {
     const gif = decodeGif(input);
@@ -78,9 +100,9 @@ export function pixelizeFile(kind, input, settings) {
     }
     const images = gif.frames.map((frame) => flattenRgba(frame.image, background));
     const durations = gif.frames.length > 1 ? gif.frames.map((f) => frameDuration(f.delayMs)) : [0];
-    return pixelize(images, durations, settings);
+    return pixelize(images, durations, settings, view);
   }
-  return pixelize([flattenRgba(input, background)], [0], settings);
+  return pixelize([flattenRgba(input, background)], [0], settings, view);
 }
 
 export function binByteSize(art) {
@@ -92,6 +114,26 @@ export function checkLimits(art) {
   if (art.frames.length > MAX_FRAMES) return `too many frames: ${art.frames.length} > ${MAX_FRAMES}`;
   const size = binByteSize(art);
   if (size > MAX_BIN_BYTES) return `file too large: ${size} bytes > ${MAX_BIN_BYTES}`;
+  return null;
+}
+
+/** What a Grid means for the user: size of one frame, GIF limit, screen coverage. */
+export function gridLimits(gridSize) {
+  const frameBytes = gridSize * gridSize;
+  const marginPx = screenOffset(gridSize);
+  return {
+    frameBytes,
+    maxFrames: Math.min(MAX_FRAMES, Math.floor((MAX_BIN_BYTES - LARGEST_BIN_HEAD) / (2 + frameBytes))),
+    fillsScreen: marginPx === 0,
+    marginPx,
+    recognizable: gridSize >= RECOGNIZABLE_GRID,
+  };
+}
+
+/** null when a Scene file of this size can be uploaded, otherwise a message. */
+export function checkSceneSize(byteLength) {
+  if (byteLength === 0) return 'Файл пустой';
+  if (byteLength > MAX_SCENE_BYTES) return 'Файл больше 64 КБ';
   return null;
 }
 

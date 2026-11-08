@@ -7,11 +7,16 @@ Copy to the root of the Presto's filesystem (e.g. with the MicroPico extension i
 
 ```
 /main.py            ← device/main.py
+/pixel.py           ← device/pixel.py (drawing helpers for Scenes)
 /gallery/           ← device/gallery/ (all .py files)
 /lib/microdot/      ← device/lib/microdot/ (__init__.py, microdot.py)
 /web/               ← web/index.html, web/style.css, web/js/*.js  (not web/test, not package.json)
-/secrets.py         ← copy of device/secrets.example.py with your Wi-Fi name and password
+/secrets.py         ← copy of device/secrets.example.py with your Wi-Fi and WEB_PASSWORD
 ```
+
+`WEB_PASSWORD` protects everything under `/api`: viewing, changing and uploading. Use Latin letters,
+digits and punctuation. Without it the gallery is open to the whole network and Scene upload is off.
+The password travels over plain HTTP inside your network. See [scene-format.md](scene-format.md).
 
 This replaces the old `main.py` menu of code-drawn scenes. Keep a copy of the old project if you
 still want those scenes.
@@ -20,7 +25,7 @@ Example with `mpremote` (run from the project folder, Presto connected by USB):
 
 ```bash
 mpremote mkdir :gallery :lib :lib/microdot :web :web/js
-mpremote cp device/main.py : + cp device/gallery/*.py :gallery/ + cp device/lib/microdot/*.py :lib/microdot/
+mpremote cp device/main.py device/pixel.py : + cp device/gallery/*.py :gallery/ + cp device/lib/microdot/*.py :lib/microdot/
 mpremote cp web/index.html web/style.css :web/ + cp web/js/*.js :web/js/
 mpremote cp device/secrets.py :secrets.py
 ```
@@ -49,7 +54,8 @@ Media lives in `/sd/gallery` (or `/gallery`): `media/<id>.bin`, `catalog.json`, 
 ```
 
 Open http://localhost:8080. Data goes to `.sim-storage/gallery`, the emulated screen to
-`.sim-storage/screen.png`.
+`.sim-storage/screen.png`. A second argument sets a password, which Scene upload needs. In the
+simulator the web server pauses while a Scene runs; the real device keeps serving.
 
 ## Tests
 

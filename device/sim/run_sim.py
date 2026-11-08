@@ -1,4 +1,4 @@
-"""Run the DeviceApp on this computer: python device/sim/run_sim.py [port]
+"""Run the DeviceApp on this computer: python device/sim/run_sim.py [port] [password]
 
 Uses the fake `presto` module, stores data in .sim-storage/gallery and writes the
 emulated screen to .sim-storage/screen.png. Open http://localhost:<port>/ in a browser.
@@ -21,7 +21,8 @@ def main():
     STORAGE.mkdir(exist_ok=True)
     presto.SCREEN_PATH = str(STORAGE / "screen.png")
     config = dict(l5_app.DEFAULT_CONFIG, port=port, webRoot=str(ROOT / "web"),
-                  storageBase=str(STORAGE / "gallery"))
+                  storageBase=str(STORAGE / "gallery"),
+                  password=sys.argv[2] if len(sys.argv) > 2 else "")
     print(f"simulator on http://localhost:{port}/  screen: {presto.SCREEN_PATH}")
     asyncio.run(l5_app.main_async(presto.Presto(), config))
 

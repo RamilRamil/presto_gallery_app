@@ -8,4 +8,5 @@ outbox/*
 !outbox/.gitkeep
 device/secrets.py
 .sim-storage/
+device-backup/
 node_modules/

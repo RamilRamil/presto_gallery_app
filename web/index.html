@@ -13,10 +13,27 @@
       <button id="prev" type="button" aria-label="Предыдущая">◀</button>
       <span id="status">…</span>
       <button id="next" type="button" aria-label="Следующая">▶</button>
+      <button id="logout" type="button" hidden>Выйти</button>
     </div>
   </header>
 
-  <main>
+  <section class="card login" id="login" hidden>
+    <h2>Вход</h2>
+    <form id="login-form" class="fields">
+      <label class="wide">Пароль
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+    </form>
+    <div class="actions">
+      <button type="submit" form="login-form" class="primary">Войти</button>
+      <span id="login-msg" class="muted" role="status"></span>
+    </div>
+  </section>
+
+  <main id="app">
+    <p class="banner" id="no-password" hidden>Пароль не задан: галерею может открыть любое устройство в сети.
+      Задай <code>WEB_PASSWORD</code> в <code>secrets.py</code> на Presto.</p>
+
     <section class="card" id="add">
       <h2>Добавить</h2>
       <label class="drop" id="drop">
@@ -26,15 +43,28 @@
       <div class="add-grid">
         <div class="preview-box">
           <canvas id="preview" width="256" height="256"></canvas>
+          <div id="crop-controls" class="crop-controls" hidden>
+            <label>Масштаб
+              <input id="crop-zoom" type="range" min="1" max="8" step="0.01" value="1">
+            </label>
+            <button id="crop-reset" type="button">Сбросить</button>
+            <p class="muted">Двигай превью мышью или пальцем, масштабируй колесом или двумя пальцами.</p>
+          </div>
           <p id="preview-info" class="muted">Нет файла</p>
         </div>
         <form id="settings-form" class="fields">
           <label>Сетка
             <select name="gridSize">
               <option value="16">16 × 16</option>
-              <option value="32" selected>32 × 32</option>
+              <option value="32">32 × 32</option>
+              <option value="40">40 × 40</option>
+              <option value="60" selected>60 × 60</option>
               <option value="64">64 × 64</option>
+              <option value="80">80 × 80</option>
+              <option value="120">120 × 120</option>
+              <option value="240">240 × 240</option>
             </select>
+            <span id="grid-hint"></span>
           </label>
           <label>Палитра
             <select name="paletteName">
@@ -55,6 +85,8 @@
             <input name="backgroundColor" type="color" value="#000000">
           </label>
           <label class="check"><input name="dither" type="checkbox"> Дизеринг</label>
+          <p class="wide warning" id="grid-warning" hidden>На такой сетке на Presto сохранится
+            хорошо узнаваемое изображение.</p>
           <label class="wide">Название
             <input name="name" type="text" maxlength="64" placeholder="по имени файла">
           </label>
@@ -70,6 +102,28 @@
       </div>
     </section>
 
+    <section class="card" id="scene-add">
+      <h2>Добавить сцену</h2>
+      <p class="muted">Сцена — это программа на MicroPython с функцией <code>run(stop)</code>. Она сможет
+        прочитать всё на Presto, поэтому загружай только свои или проверенные файлы.</p>
+      <p class="warning" id="scene-off" hidden>Загрузка сцен отключена, пока не задан пароль.</p>
+      <form id="scene-form" class="fields">
+        <label class="wide">Файл .py
+          <input id="scene-file" type="file" accept=".py,text/x-python,text/plain">
+        </label>
+        <label>Название
+          <input name="name" type="text" maxlength="64" placeholder="по имени файла">
+        </label>
+        <label>Теги (через запятую)
+          <input name="tags" type="text" list="tag-list">
+        </label>
+      </form>
+      <div class="actions">
+        <button id="scene-upload" type="button" class="primary">Загрузить сцену</button>
+        <span id="scene-msg" class="muted" role="status"></span>
+      </div>
+    </section>
+
     <section class="card" id="show">
       <h2>Что показывать</h2>
       <form id="mode-form" class="fields">
@@ -77,6 +131,7 @@
           <label class="check"><input type="radio" name="showMode" value="all"> Всё</label>
           <label class="check"><input type="radio" name="showMode" value="images"> Картинки</label>
           <label class="check"><input type="radio" name="showMode" value="animations"> Гифки</label>
+          <label class="check"><input type="radio" name="showMode" value="scenes"> Сцены</label>
           <label class="check"><input type="radio" name="showMode" value="tags"> По тегам</label>
         </fieldset>
         <div class="chips wide" id="mode-tags"></div>
@@ -111,6 +166,7 @@
       </div>
       <div class="item-actions">
         <button type="button" data-action="show">Показать</button>
+        <button type="button" data-action="enable" hidden>Включить</button>
         <button type="button" data-action="edit">Изменить</button>
         <button type="button" data-action="delete" class="danger">Удалить</button>
       </div>

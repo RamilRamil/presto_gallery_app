@@ -11,7 +11,7 @@ cp ~/Pictures/cat.jpg inbox/
 ```
 
 Results go to `outbox/`: `<name>.preview.png` (8 px per cell) and `<name>.bin`
-([format](docs/bin-format.md)). Options: `--grid 16|32|64`, `--colors 2..256` or `--palette pico-8`,
+([format](docs/bin-format.md)). Options: `--grid 16|32|40|60|64|80|120|240`, `--colors 2..256` or `--palette pico-8`,
 `--fit crop|fit`, `--background #RRGGBB`, `--dither`, `--preview-scale N`, `--inbox`, `--outbox`.
 Exit codes: 0 ok, 1 some file failed, 2 bad options.
 

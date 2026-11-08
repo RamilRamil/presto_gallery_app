@@ -4,13 +4,14 @@ import json
 import struct
 
 from .l1_primitives import cell_size
-from .model import CATALOG_FORMAT_VERSION, default_settings, empty_catalog
+from .model import CATALOG_FORMAT_VERSION, KIND_PICTURE, default_settings, empty_catalog
 
 MAGIC = b"PPXA"
 HEADER_FORMAT = "<4sBBHHHHBB"
 HEADER_SIZE = 16
 MAX_UPLOAD_BYTES = 1024 * 1024
-GRID_SIZES = (16, 32, 64)
+MAX_SCENE_BYTES = 64 * 1024
+GRID_SIZES = (16, 32, 40, 60, 64, 80, 120, 240)
 
 
 def parse_bin_header(data):
@@ -60,6 +61,37 @@ def validate_upload(head, total_length):
     return header
 
 
+def validate_scene_source(data):
+    """Scene upload bytes -> source text; raises ValueError. Syntax is checked by the caller."""
+    if len(data) > MAX_SCENE_BYTES:
+        raise ValueError("scene larger than 64 KB")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeError:
+        raise ValueError("scene is not UTF-8 text")
+    if not any(line.startswith("def run(") for line in text.split("\n")):
+        raise ValueError("scene has no top-level run(stop) function")
+    return text
+
+
+def bearer_token(header):
+    """Value of an Authorization header -> its Bearer token, or None."""
+    if not header or not header.startswith("Bearer "):
+        return None
+    return header[7:]
+
+
+def password_matches(expected, presented):
+    """True when presented equals the non-empty expected password; compares every byte."""
+    if not expected or presented is None:
+        return False
+    want, got = expected.encode("utf-8"), presented.encode("utf-8")
+    difference = len(want) ^ len(got)
+    for i in range(len(want)):
+        difference |= want[i] ^ (got[i] if i < len(got) else 0)
+    return difference == 0
+
+
 def catalog_to_json(catalog):
     return json.dumps(catalog)
 
@@ -74,6 +106,10 @@ def catalog_from_json(text):
         return empty_catalog()
     keys = ("mediaId", "name", "tags", "frameCount", "gridSize", "byteSize", "createdAt")
     items = [i for i in data.get("items", []) if isinstance(i, dict) and all(k in i for k in keys)]
+    for item in items:  # catalogs written before Scenes existed
+        item.setdefault("kind", KIND_PICTURE)
+        item.setdefault("flagged", False)
+        item.setdefault("error", None)
     return {"formatVersion": CATALOG_FORMAT_VERSION, "items": items}
 
 

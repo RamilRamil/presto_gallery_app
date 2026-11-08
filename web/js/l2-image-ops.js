@@ -29,11 +29,26 @@ function copyRegion(src, left, top, width, height, dest, destX, destY) {
   }
 }
 
-export function cropRgb(image) {
-  const [left, top, right, bottom] = centerSquareBox(image.width, image.height);
-  const side = right - left;
+export function cropRgbWindow(image, { x, y, side }) {
   const out = { width: side, height: side, data: new Uint8Array(side * side * 3) };
-  copyRegion(image, left, top, side, bottom - top, out, 0, 0);
+  copyRegion(image, x, y, side, side, out, 0, 0);
+  return out;
+}
+
+export function cropRgb(image) {
+  const [left, top, right] = centerSquareBox(image.width, image.height);
+  return cropRgbWindow(image, { x: left, y: top, side: right - left });
+}
+
+/** The square {x, y, side}, which may extend past the picture, filled with `background` there. */
+export function fitRgbWindow(image, { x, y, side }, background) {
+  const out = { width: side, height: side, data: new Uint8Array(side * side * 3) };
+  for (let i = 0; i < out.data.length; i += 3) out.data.set(background, i);
+  const left = Math.max(x, 0);
+  const top = Math.max(y, 0);
+  const right = Math.min(x + side, image.width);
+  const bottom = Math.min(y + side, image.height);
+  if (right > left && bottom > top) copyRegion(image, left, top, right - left, bottom - top, out, left - x, top - y);
   return out;
 }
 

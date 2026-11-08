@@ -17,7 +17,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                                      description="Convert inbox/ images into Presto pixel art.")
     parser.add_argument("--inbox", type=Path, default=Path("inbox"))
     parser.add_argument("--outbox", type=Path, default=Path("outbox"))
-    parser.add_argument("--grid", type=int, default=32, help="16, 32 or 64")
+    parser.add_argument("--grid", type=int, default=32, help="16, 32, 40, 60, 64, 80, 120 or 240")
     colors = parser.add_mutually_exclusive_group()
     colors.add_argument("--colors", type=int, default=16, help="adaptive palette size 2..256")
     colors.add_argument("--palette", choices=sorted(PRESET_PALETTES), default=None)

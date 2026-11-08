@@ -4,44 +4,40 @@
 import gc
 import os
 import time
+from array import array
 
 import asyncio
 from microdot import Microdot, Request, Response, send_file
+import pixel
 
 from .l3_playlist import (
-    allocate_media_id, apply_command, slide_plan, tag_counts, validate_settings,
+    allocate_media_id, apply_command, item_by_id, slide_limit_ms, slide_plan, tag_counts,
+    validate_settings,
 )
 from .l4_codecs import (
-    HEADER_SIZE, MAX_UPLOAD_BYTES, catalog_from_json, catalog_to_json, frame_offset,
-    parse_bin_header, read_frame_duration, read_palette, settings_from_json, settings_to_json,
-    validate_upload,
+    HEADER_SIZE, MAX_SCENE_BYTES, MAX_UPLOAD_BYTES, bearer_token, catalog_from_json,
+    catalog_to_json, frame_offset, parse_bin_header, password_matches, read_frame_duration,
+    read_palette, settings_from_json, settings_to_json, validate_scene_source, validate_upload,
 )
-from .model import device_state, media_item
+from .l5_clock import ticks_diff, ticks_ms
+from .l5_scene import check_syntax, clear_running, make_stop, mark_running, run_scene
+from .model import KIND_SCENE, device_state, media_item, scene_item
 
-VERSION = "002-presto-wifi-gallery"
+VERSION = "003-fullscreen-scenes"
 CHUNK = 4096
 SPACE_MARGIN = 64 * 1024
 LONG_PRESS_MS = 1000
 INFO_MS = 5000
+AUTH_RETRY_MS = 1000
+NOT_RESPONDING = "not responding: restarted before its first stop() call"
 
 DEFAULT_CONFIG = {
     "webRoot": "/web",
     "storageBase": None,      # None: microSD (/sd/gallery) if it mounts, else /gallery
     "port": 80,
     "hostname": "presto",
+    "password": None,         # None: WEB_PASSWORD from secrets.py
 }
-
-
-def ticks_ms():
-    if hasattr(time, "ticks_ms"):
-        return time.ticks_ms()
-    return int(time.monotonic() * 1000)
-
-
-def ticks_diff(a, b):
-    if hasattr(time, "ticks_diff"):
-        return time.ticks_diff(a, b)
-    return a - b
 
 
 # --- storage ------------------------------------------------------------------------------
@@ -137,7 +133,24 @@ def connect_wifi(hostname, timeout_ms=20000):
     return wlan.ifconfig()[0] if wlan.isconnected() else None
 
 
+def load_password():
+    try:
+        import secrets
+    except ImportError:
+        return ""
+    return getattr(secrets, "WEB_PASSWORD", "") or ""
+
+
 # --- display ------------------------------------------------------------------------------
+
+def make_blitter(display):
+    """(framebuffer, blit_frame, layout), or None when rectangles have to be used."""
+    try:
+        from .l5_blit import blit_frame, layout
+        return memoryview(display), blit_frame, layout
+    except (ImportError, TypeError):
+        return None
+
 
 def draw_frame(display, pens, frame, size, cell, offset):
     """One rectangle per run of equal indices in a row."""
@@ -174,6 +187,11 @@ class GalleryApp:
         self.broken = set()
         self.wake = asyncio.Event()
         self.info_requested = False
+        self.blitter = make_blitter(presto.display)
+        password = config["password"]
+        self.password = load_password() if password is None else password
+        self.auth_slot = ticks_ms()
+        pixel.bind(presto)
         base = config["storageBase"]
         kind = "custom"
         if base is None:
@@ -181,6 +199,7 @@ class GalleryApp:
             base = "/sd/gallery" if kind == "microSD" else "/gallery"
         self.base, self.storage_kind = base, kind
         make_dirs(base + "/media")
+        make_dirs(base + "/scenes")
         catalog = catalog_from_json(load_text(self.path("catalog.json")))
         try:
             settings = validate_settings(settings_from_json(load_text(self.path("settings.json"))))
@@ -188,12 +207,24 @@ class GalleryApp:
             settings = validate_settings({})
         self.state = apply_command(device_state(catalog, settings, [], 0),
                                    {"op": "setSettings", "settings": settings}, ticks_ms())
+        self.recover_stuck_scene()
 
     def path(self, name):
         return self.base + "/" + name
 
     def media_path(self, media_id):
         return self.base + "/media/" + media_id + ".bin"
+
+    def scene_path(self, media_id):
+        return self.base + "/scenes/" + media_id + ".py"
+
+    def recover_stuck_scene(self):
+        """A marker left from the last run means that Scene never reached its first stop()."""
+        marker = self.path("scene.running")
+        media_id = load_text(marker).strip()
+        clear_running(marker)
+        if media_id and item_by_id(self.state["catalog"], media_id) is not None:
+            self.change({"op": "flag", "mediaId": media_id, "error": NOT_RESPONDING})
 
     def change(self, command):
         """Apply a command, persist what changed, wake the player."""
@@ -209,7 +240,7 @@ class GalleryApp:
     def status(self):
         playlist, index = self.state["playlist"], self.state["index"]
         return {
-            "ip": self.ip, "version": VERSION,
+            "ip": self.ip, "version": VERSION, "passwordSet": bool(self.password),
             "storage": storage_info(self.base, self.storage_kind),
             "current": {"mediaId": playlist[index] if playlist else None, "index": index,
                         "playlistLength": len(playlist)},
@@ -221,6 +252,7 @@ class GalleryApp:
     async def sleep_or_wake(self, ms):
         """True when woken by a change before `ms` passed."""
         if ms <= 0:
+            await asyncio.sleep(0)  # slow frames must still let the server run
             return self.wake.is_set()
         try:
             await asyncio.wait_for(self.wake.wait(), ms / 1000)
@@ -235,26 +267,56 @@ class GalleryApp:
             head = f.read(HEADER_SIZE + 3 * 256)
             header = parse_bin_header(head)
             pens = [display.create_pen(r, g, b) for r, g, b in read_palette(head, header)]
+            draw = self.frame_drawer(pens, header)
+            frame = bytearray(header["frameSize"])
             durations = []
             for i in range(header["frameCount"]):
                 f.seek(frame_offset(header, i))
                 durations.append(read_frame_duration(f.read(2)))
             plan = slide_plan(durations, slide_seconds)
-            size, cell = header["width"], header["cellSize"]
-            offset = (240 - size * cell) // 2
             display.set_pen(display.create_pen(0, 0, 0))
             display.clear()
             for _ in range(plan["loops"]):
                 for i in range(header["frameCount"]):
                     started = ticks_ms()
                     f.seek(frame_offset(header, i) + 2)
-                    draw_frame(display, pens, f.read(header["frameSize"]), size, cell, offset)
+                    f.readinto(frame)
+                    draw(frame)
                     self.presto.update()
                     wait = max(20, durations[i]) - ticks_diff(ticks_ms(), started) \
                         if header["frameCount"] > 1 else 0
                     if await self.sleep_or_wake(wait):
                         return True
             return await self.sleep_or_wake(plan["holdMs"])
+
+    def frame_drawer(self, pens, header):
+        """Function drawing one frame of this item, by the fastest available method."""
+        size, cell = header["width"], header["cellSize"]
+        offset = (240 - size * cell) // 2
+        if self.blitter is None:
+            display = self.presto.display
+            return lambda frame: draw_frame(display, pens, frame, size, cell, offset)
+        target, blit_frame, layout = self.blitter
+        palette = array("H", pens + [0] * (256 - len(pens)))
+        packed = layout(size, cell, offset)
+        return lambda frame: blit_frame(target, frame, palette, packed)
+
+    async def play_scene(self, media_id, playlist, slide_seconds):
+        """Run one Scene for its slide time; True if interrupted or flagged."""
+        display = self.presto.display
+        display.set_pen(display.create_pen(0, 0, 0))
+        display.clear()
+        marker = self.path("scene.running")
+        mark_running(marker, media_id)
+        stop = make_stop(self.wake, slide_limit_ms(playlist, slide_seconds),
+                         lambda: clear_running(marker))
+        error = run_scene(self.scene_path(media_id), stop)
+        clear_running(marker)
+        if error:
+            print("scene failed", media_id, error)
+            self.change({"op": "flag", "mediaId": media_id, "error": error})
+            return True
+        return await self.sleep_or_wake(0)
 
     async def show_info(self):
         settings = self.state["settings"]
@@ -280,8 +342,12 @@ class GalleryApp:
                 await self.sleep_or_wake(60000)
                 continue
             media_id = playlist[state["index"]]
+            seconds = state["settings"]["slideSeconds"]
             try:
-                interrupted = await self.play_item(media_id, state["settings"]["slideSeconds"])
+                if item_by_id(state["catalog"], media_id)["kind"] == KIND_SCENE:
+                    interrupted = await self.play_scene(media_id, playlist, seconds)
+                else:
+                    interrupted = await self.play_item(media_id, seconds)
                 self.broken.discard(media_id)
             except (OSError, ValueError) as error:
                 print("cannot play", media_id, error)
@@ -314,8 +380,7 @@ class GalleryApp:
     async def wifi_loop(self):
         while True:
             await asyncio.sleep(30)
-            if self.ip is None:
-                self.ip = connect_wifi(self.config["hostname"], 10000)
+            self.ip = connect_wifi(self.config["hostname"], 10000)  # also after a lost link
 
 
 # --- HTTP ---------------------------------------------------------------------------------
@@ -337,15 +402,33 @@ def build_server(app):
         except ValueError as error:
             return None, error_response(400, str(error))
 
+    def tags_from(args):
+        return [t for t in (args.get("tags", "") or "").split(",") if t.strip()]
+
+    @server.before_request
+    async def check_password(request):
+        if not request.path.startswith("/api/") or not app.password:
+            return None
+        presented = bearer_token(request.headers.get("Authorization"))
+        if password_matches(app.password, presented):
+            return None
+        now = ticks_ms()  # every failure takes its own one-second slot
+        wait = max(0, ticks_diff(app.auth_slot, now))
+        app.auth_slot = now + wait + AUTH_RETRY_MS
+        if wait:
+            await asyncio.sleep(wait / 1000)
+        return error_response(401, "password required")
+
     @server.get("/")
     async def index(request):
         return send_file(web_root + "/index.html", max_age=0)
 
     @server.get("/web/<path:path>")
     async def static(request, path):
-        if ".." in path:
+        target = web_root + "/" + path
+        if ".." in path or "%" in path or not exists(target):
             return error_response(404, "not found")
-        return send_file(web_root + "/" + path, max_age=0)
+        return send_file(target, max_age=0)
 
     @server.get("/api/status")
     async def status(request):
@@ -394,14 +477,48 @@ def build_server(app):
                 pass
             return error_response(400, str(error))
         args = request.args
-        item = media_item(media_id, args.get("name", "untitled") or "untitled",
-                          [t for t in (args.get("tags", "") or "").split(",") if t.strip()],
+        item = media_item(media_id, args.get("name", "untitled") or "untitled", tags_from(args),
                           header["frameCount"], header["width"], length, int(time.time()))
         state, error = run_command({"op": "upload", "item": item})
         if error:
             os.remove(app.media_path(media_id))
             return error
-        return next(i for i in state["catalog"]["items"] if i["mediaId"] == media_id), 201
+        return item_by_id(state["catalog"], media_id), 201
+
+    @server.post("/api/scenes")
+    async def upload_scene(request):
+        if not app.password:
+            return error_response(403, "set WEB_PASSWORD on the device to upload scenes")
+        length = request.content_length or 0
+        if length > MAX_SCENE_BYTES:
+            return error_response(400, "scene larger than 64 KB")
+        info = storage_info(app.base, app.storage_kind)
+        if info["total"] and length + SPACE_MARGIN > info["free"]:
+            return error_response(507, "not enough storage")
+        data = b""
+        while len(data) < length:
+            chunk = await request.stream.read(min(CHUNK, length - len(data)))
+            if not chunk:
+                return error_response(400, "upload interrupted")
+            data += chunk
+        try:
+            text = validate_scene_source(data)
+            check_syntax(text)
+        except ValueError as error:
+            return error_response(400, str(error))
+        except SyntaxError as error:
+            return error_response(400, "syntax error: " + str(error))
+        media_id = allocate_media_id(app.state["catalog"], ticks_ms() ^ length)
+        path = app.scene_path(media_id)
+        save_atomic(path, text)
+        args = request.args
+        item = scene_item(media_id, args.get("name", "scene") or "scene", tags_from(args),
+                          length, int(time.time()))
+        state, error = run_command({"op": "upload", "item": item})
+        if error:
+            os.remove(path)
+            return error
+        return item_by_id(state["catalog"], media_id), 201
 
     @server.get("/api/media/<media_id>/file")
     async def media_file(request, media_id):
@@ -422,19 +539,24 @@ def build_server(app):
             state, error = run_command({"op": "setTags", "mediaId": media_id, "tags": body["tags"]})
             if error:
                 return error
+        if body.get("flagged") is False:
+            state, error = run_command({"op": "unflag", "mediaId": media_id})
+            if error:
+                return error
         if state is None:
             return error_response(400, "nothing to change")
-        return next(i for i in state["catalog"]["items"] if i["mediaId"] == media_id)
+        return item_by_id(state["catalog"], media_id)
 
     @server.delete("/api/media/<media_id>")
     async def delete_media(request, media_id):
         _, error = run_command({"op": "remove", "mediaId": media_id})
         if error:
             return error
-        try:
-            os.remove(app.media_path(media_id))
-        except OSError:
-            pass
+        for path in (app.media_path(media_id), app.scene_path(media_id)):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         app.broken.discard(media_id)
         return "", 204
 

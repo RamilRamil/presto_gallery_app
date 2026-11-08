@@ -22,7 +22,7 @@ frame i = durationMs (2 bytes) + width*height index bytes
 | 0 | 4 | ASCII | magic | `P` `P` `X` `A` (0x50 0x50 0x58 0x41) |
 | 4 | 1 | u8 | formatVersion | `1` |
 | 5 | 1 | u8 | flags | bit 0 = loop (set when frameCount > 1), other bits 0. Players MUST ignore unknown bits |
-| 6 | 2 | u16 | width | cells horizontally (= gridSize: 16, 32 or 64) |
+| 6 | 2 | u16 | width | cells horizontally (= gridSize: 16, 32, 40, 60, 64, 80, 120 or 240) |
 | 8 | 2 | u16 | height | cells vertically (= gridSize) |
 | 10 | 2 | u16 | paletteSize | number of palette entries, 1..256 |
 | 12 | 2 | u16 | frameCount | number of frames, ≥ 1 (MVP always writes 1) |
@@ -54,7 +54,7 @@ Example: grid 32, 16 colors, 1 frame → 16 + 48 + 2 + 1024 = **1090 bytes**.
 
 ```
 cell   = header.cellSize                 # or 240 // width
-offset = (240 - width * cell) // 2       # 0 / 8 / 24 for grids 16 / 32 / 64
+offset = (240 - width * cell) // 2       # 8 for grid 32, 24 for grid 64, 0 for the others
 cell (x, y) -> rectangle (offset + x*cell, offset + y*cell, cell, cell)
 ```
 The margin around the picture is left to the player (e.g. clear to black).

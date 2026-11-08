@@ -5,12 +5,17 @@ import pytest
 from gallery import l1_primitives as l1
 from gallery import l2_catalog as l2
 from gallery import l3_playlist as l3
+from gallery import l3_scene
 from gallery import l4_codecs as l4
-from gallery.model import default_settings, device_state, empty_catalog, media_item
+from gallery.model import default_settings, device_state, empty_catalog, media_item, scene_item
 
 
 def item(media_id, frames=1, tags=(), name="pic"):
     return media_item(media_id, name, tags, frames, 32, 1090, 0)
+
+
+def scene(media_id, tags=()):
+    return scene_item(media_id, "scene", tags, 100, 0)
 
 
 def catalog_of(*items):
@@ -201,3 +206,111 @@ def test_allocate_media_id_and_tag_counts():
     catalog = catalog_of(item("a", tags=["x"]))
     assert l3.allocate_media_id(catalog, 5) != "a"
     assert l3.tag_counts(catalog) == [{"label": "x", "count": 1}]
+
+
+# --- full-screen grids and Scenes ---
+
+@pytest.mark.parametrize("grid,cell", [(40, 6), (60, 4), (80, 3), (120, 2), (240, 1)])
+def test_full_screen_grids(grid, cell):
+    assert (l1.cell_size(grid), l1.screen_offset(grid)) == (cell, 0)
+    data = make_bin(grid)
+    assert l4.validate_upload(data[:64], len(data))["frameSize"] == grid * grid
+
+
+@pytest.mark.parametrize("grid", [17, 100, 480])
+def test_unknown_grid_rejected(grid):
+    with pytest.raises(ValueError):
+        l4.parse_bin_header(make_bin(grid))
+
+
+def test_scene_rect_covers_screen_without_gaps():
+    spans = [l3_scene.scene_rect(x, 0, 1, 1, 32, 240) for x in range(32)]
+    assert spans[0][0] == 0 and spans[-1][0] + spans[-1][2] == 240
+    for (left, _, width, _), (next_left, _, _, _) in zip(spans, spans[1:]):
+        assert left + width == next_left
+    assert {s[2] for s in spans} == {7, 8}
+
+
+def test_scene_rect_of_several_cells():
+    assert l3_scene.scene_rect(0, 0, 32, 32, 32, 240) == (0, 0, 240, 240)
+    assert l3_scene.scene_rect(2, 3, 2, 1, 32, 240) == (15, 22, 15, 8)
+
+
+def test_filter_by_mode_with_scenes_and_flags():
+    catalog = catalog_of(item("a", 1, ["x"]), item("b", 5), scene("s", ["x"]), scene("t"))
+    catalog = l2.set_flag(catalog, "t", True, "boom")
+    ids = lambda mode, tags=(): [i["mediaId"] for i in l2.filter_by_mode(catalog, mode, tags)]
+    assert ids("all") == ["a", "b", "s"]
+    assert ids("images") == ["a"]
+    assert ids("animations") == ["b"]
+    assert ids("scenes") == ["s"]
+    assert ids("tags", ["x"]) == ["a", "s"]
+
+
+def test_set_flag_rules():
+    catalog = catalog_of(item("a"), scene("s"))
+    flagged = l2.set_flag(catalog, "s", True, "x" * 500)
+    assert l2.find_item(flagged, "s")["flagged"] and len(l2.find_item(flagged, "s")["error"]) == 200
+    cleared = l2.set_flag(flagged, "s", False, None)
+    assert not l2.find_item(cleared, "s")["flagged"] and l2.find_item(cleared, "s")["error"] is None
+    with pytest.raises(ValueError):
+        l2.set_flag(catalog, "a", True, "no")
+    with pytest.raises(KeyError):
+        l2.set_flag(catalog, "zz", True, "no")
+
+
+def test_flag_moves_to_next_item_and_unflag_restores():
+    state = device_state(catalog_of(item("a"), scene("s"), item("b")), default_settings(),
+                         ["a", "s", "b"], 1)
+    state = l3.apply_command(state, {"op": "flag", "mediaId": "s", "error": "boom"}, 1)
+    assert state["playlist"] == ["a", "b"] and state["index"] == 1
+    with pytest.raises(ValueError):
+        l3.apply_command(state, {"op": "show", "mediaId": "s"}, 1)
+    state = l3.apply_command(state, {"op": "unflag", "mediaId": "s"}, 1)
+    assert state["playlist"] == ["a", "s", "b"]
+    state = l3.apply_command(state, {"op": "show", "mediaId": "s"}, 1)
+    assert state["index"] == 1
+
+
+def test_flag_of_the_last_item_empties_playlist():
+    state = device_state(catalog_of(scene("s")), default_settings(), ["s"], 0)
+    state = l3.apply_command(state, {"op": "flag", "mediaId": "s", "error": "boom"}, 1)
+    assert state["playlist"] == [] and state["index"] == 0
+
+
+def test_slide_limit():
+    assert l3.slide_limit_ms(["a"], 10) is None
+    assert l3.slide_limit_ms(["a", "b"], 10) == 10000
+
+
+def test_scenes_show_mode_is_valid():
+    assert l3.validate_settings({"showMode": "scenes"})["showMode"] == "scenes"
+
+
+def test_validate_scene_source():
+    source = "import time\n\ndef run(stop):\n    pass\n"
+    assert l4.validate_scene_source(source.encode()) == source
+    for bad in (b"def helper():\n    pass\n", b"    def run(stop):\n", b"\xff\xfe def run(\n",
+                b"def run(stop):\n" + b"#" * (64 * 1024)):
+        with pytest.raises(ValueError):
+            l4.validate_scene_source(bad)
+
+
+def test_bearer_token():
+    assert l4.bearer_token("Bearer abc") == "abc"
+    for bad in (None, "", "Basic abc", "bearer abc"):
+        assert l4.bearer_token(bad) is None
+
+
+def test_password_matches():
+    assert l4.password_matches("secret", "secret")
+    for expected, presented in (("secret", "secre"), ("secret", "secret1"), ("secret", "Secret"),
+                                ("secret", None), ("", ""), ("", None)):
+        assert not l4.password_matches(expected, presented)
+
+
+def test_old_catalog_gets_scene_fields():
+    old = '{"formatVersion": 1, "items": [{"mediaId": "a", "name": "n", "tags": [], ' \
+          '"frameCount": 1, "gridSize": 64, "byteSize": 9, "createdAt": 0}]}'
+    loaded = l4.catalog_from_json(old)["items"][0]
+    assert (loaded["kind"], loaded["flagged"], loaded["error"]) == ("picture", False, None)

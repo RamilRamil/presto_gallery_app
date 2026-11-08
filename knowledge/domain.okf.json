@@ -68,14 +68,14 @@
       "properties": {
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 64",
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240",
           "qualifiers": {
             "default": 32
           }
         },
         "cellSize": {
           "@type": "Integer",
-          "value": "floor(screenSize / gridSize): 15, 7 or 3 px"
+          "value": "floor(screenSize / gridSize): 15, 7, 6, 4, 3, 3, 2 or 1 px"
         }
       }
     },
@@ -160,7 +160,7 @@
       "properties": {
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 64"
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240"
         },
         "colorCount": {
           "@type": "Integer",
@@ -325,7 +325,7 @@
       "@id": "media-item",
       "@type": "DataEntity",
       "name": "MediaItem",
-      "description": "One stored PrestoBinFormat file on the device plus its metadata.",
+      "description": "One stored item on the device plus its metadata: a picture (PrestoBinFormat file) or a Scene.",
       "properties": {
         "mediaId": {
           "@type": "Text",
@@ -341,11 +341,11 @@
         },
         "frameCount": {
           "@type": "Integer",
-          "value": ">= 1"
+          "value": ">= 1 for a picture, 0 for a Scene"
         },
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 64"
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240, 0 for a Scene"
         },
         "byteSize": {
           "@type": "Integer",
@@ -354,6 +354,18 @@
         "createdAt": {
           "@type": "Integer",
           "value": "unix seconds"
+        },
+        "kind": {
+          "@type": "Text",
+          "value": "picture | scene"
+        },
+        "flagged": {
+          "@type": "Boolean",
+          "value": "true for a Scene left out of the Playlist"
+        },
+        "error": {
+          "@type": "Text",
+          "value": "last Scene error or null"
         }
       }
     },
@@ -385,11 +397,11 @@
       "@id": "show-mode",
       "@type": "EnumEntity",
       "name": "ShowMode",
-      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), tags (any of selected).",
+      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), scenes, tags (any of selected).",
       "properties": {
         "values": {
           "@type": "Text",
-          "value": "all | images | animations | tags",
+          "value": "all | images | animations | scenes | tags",
           "qualifiers": {
             "default": "all"
           }
@@ -485,6 +497,54 @@
         "fileName": {
           "@type": "Text",
           "value": "tests/golden/*.json"
+        }
+      }
+    },
+    {
+      "@id": "scene",
+      "@type": "DataEntity",
+      "name": "Scene",
+      "description": "Stored MicroPython script drawing an animation in code through run(stop) and the pixel helpers; a MediaItem kind. Trusted code with no sandbox.",
+      "properties": {
+        "entryPoint": {
+          "@type": "Text",
+          "value": "run(stop)"
+        },
+        "maxBytes": {
+          "@type": "Integer",
+          "value": 65536
+        }
+      }
+    },
+    {
+      "@id": "access-password",
+      "@type": "SettingEntity",
+      "name": "AccessPassword",
+      "description": "Single secret from the device secrets file that grants access to the HttpApi; required for Scene upload.",
+      "properties": {
+        "settingName": {
+          "@type": "Text",
+          "value": "WEB_PASSWORD"
+        }
+      }
+    },
+    {
+      "@id": "crop-view",
+      "@type": "DataEntity",
+      "name": "CropView",
+      "description": "The chosen square part of a picture in the WebUi: its center in source pixels and its zoom. Not stored on the device.",
+      "properties": {
+        "centerX": {
+          "@type": "Number",
+          "value": "source pixels"
+        },
+        "centerY": {
+          "@type": "Number",
+          "value": "source pixels"
+        },
+        "zoom": {
+          "@type": "Number",
+          "value": "1..8"
         }
       }
     }
@@ -749,6 +809,26 @@
       "@type": "Verifies",
       "source": "golden-vector",
       "target": "web-ui"
+    },
+    {
+      "@type": "IsA",
+      "source": "scene",
+      "target": "media-item"
+    },
+    {
+      "@type": "Plays",
+      "source": "device-app",
+      "target": "scene"
+    },
+    {
+      "@type": "Protects",
+      "source": "access-password",
+      "target": "http-api"
+    },
+    {
+      "@type": "Selects",
+      "source": "crop-view",
+      "target": "source-image"
     }
   ]
 }
