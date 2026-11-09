@@ -385,7 +385,7 @@
       "@id": "catalog",
       "@type": "DataEntity",
       "name": "Catalog",
-      "description": "All MediaItems on the device; persisted atomically as catalog.json.",
+      "description": "All MediaItems and Collections on the device; persisted atomically as catalog.json.",
       "properties": {
         "formatVersion": {
           "@type": "Integer",
@@ -397,11 +397,11 @@
       "@id": "show-mode",
       "@type": "EnumEntity",
       "name": "ShowMode",
-      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), scenes, tags (any of selected).",
+      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), scenes, collection (one Collection), tags (any of selected).",
       "properties": {
         "values": {
           "@type": "Text",
-          "value": "all | images | animations | scenes | tags",
+          "value": "all | images | animations | scenes | collection | tags",
           "qualifiers": {
             "default": "all"
           }
@@ -435,6 +435,10 @@
           "qualifiers": {
             "default": false
           }
+        },
+        "selectedCollection": {
+          "@type": "Text",
+          "value": "collectionId or null"
         }
       }
     },
@@ -547,6 +551,53 @@
           "value": "1..8"
         }
       }
+    },
+    {
+      "@id": "collection",
+      "@type": "DataEntity",
+      "name": "Collection",
+      "description": "Named, ordered set of MediaItems put together by hand; items can have different Tags and belong to several Collections.",
+      "properties": {
+        "collectionId": {
+          "@type": "Text",
+          "value": "8 hex chars"
+        },
+        "name": {
+          "@type": "Text",
+          "value": "1..64 chars, unique"
+        },
+        "mediaIds": {
+          "@type": "List",
+          "value": "mediaId in the order added"
+        }
+      }
+    },
+    {
+      "@id": "upload-queue",
+      "@type": "DataEntity",
+      "name": "UploadQueue",
+      "description": "Files waiting for upload in the WebUi. Each follows the setup of the reference file, value by value, unless the user set that value on the file. Not stored on the device.",
+      "properties": {
+        "state": {
+          "@type": "Text",
+          "value": "waiting | uploading | done | failed"
+        },
+        "referenceFile": {
+          "@type": "Text",
+          "value": "the first picture or GIF in the queue; what is set on it applies to the other files"
+        },
+        "setup": {
+          "@type": "Text",
+          "value": "conversion settings, relative CropView, Tags and target Collection of one file"
+        }
+      }
+    },
+    {
+      "@id": "device-menu",
+      "@type": "ProcessEntity",
+      "name": "DeviceMenu",
+      "description": "Touch menu on the Presto, opened by a long press, for choosing what to show.",
+      "properties": {}
     }
   ],
   "relations": [
@@ -829,6 +880,47 @@
       "@type": "Selects",
       "source": "crop-view",
       "target": "source-image"
+    },
+    {
+      "@type": "HasPart",
+      "source": "catalog",
+      "target": "collection",
+      "properties": {
+        "cardinality": "0..n"
+      }
+    },
+    {
+      "@type": "Contains",
+      "source": "collection",
+      "target": "media-item",
+      "properties": {
+        "cardinality": "0..n"
+      }
+    },
+    {
+      "@type": "Selects",
+      "source": "device-settings",
+      "target": "collection"
+    },
+    {
+      "@type": "Produces",
+      "source": "upload-queue",
+      "target": "media-item"
+    },
+    {
+      "@type": "Uses",
+      "source": "web-ui",
+      "target": "upload-queue"
+    },
+    {
+      "@type": "Selects",
+      "source": "device-menu",
+      "target": "device-settings"
+    },
+    {
+      "@type": "DisplayedOn",
+      "source": "device-menu",
+      "target": "presto-screen"
     }
   ]
 }

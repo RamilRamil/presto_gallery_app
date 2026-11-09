@@ -92,7 +92,8 @@ def test_all_tags_and_filter_by_mode():
 
 def test_validate_settings():
     s = l3.validate_settings({"showMode": "tags", "selectedTags": ["Cats"], "slideSeconds": 1})
-    assert s == {"showMode": "tags", "selectedTags": ["cats"], "slideSeconds": 3, "shuffle": False}
+    assert s == {"showMode": "tags", "selectedTags": ["cats"], "selectedCollection": None,
+                 "slideSeconds": 3, "shuffle": False}
     for bad in ({"showMode": "x"}, {"slideSeconds": "10"}, {"slideSeconds": True}):
         with pytest.raises(ValueError):
             l3.validate_settings(bad)
@@ -314,3 +315,62 @@ def test_old_catalog_gets_scene_fields():
           '"frameCount": 1, "gridSize": 64, "byteSize": 9, "createdAt": 0}]}'
     loaded = l4.catalog_from_json(old)["items"][0]
     assert (loaded["kind"], loaded["flagged"], loaded["error"]) == ("picture", False, None)
+
+
+def two_collections():
+    catalog = catalog_of(item("a"), item("b"))
+    catalog = l2.add_collection(catalog, "c1", "one")
+    catalog = l2.add_collection(catalog, "c2", "two")
+    return l2.add_to_collection(catalog, "c1", ["a", "b"])
+
+
+def test_set_item_collections_keeps_place_and_appends():
+    catalog = l2.add_to_collection(two_collections(), "c2", ["b"])
+    changed = l2.set_item_collections(catalog, "a", ["c1", "c2"])
+    assert l2.find_collection(changed, "c1")["mediaIds"] == ["a", "b"]
+    assert l2.find_collection(changed, "c2")["mediaIds"] == ["b", "a"]
+    assert l2.find_collection(catalog, "c2")["mediaIds"] == ["b"]
+
+
+def test_set_item_collections_removes_from_the_rest():
+    changed = l2.set_item_collections(two_collections(), "a", [])
+    assert l2.find_collection(changed, "c1")["mediaIds"] == ["b"]
+
+
+def test_set_item_collections_rejects_bad_input():
+    catalog = two_collections()
+    with pytest.raises(KeyError):
+        l2.set_item_collections(catalog, "missing", [])
+    with pytest.raises(KeyError):
+        l2.set_item_collections(catalog, "a", ["nope"])
+    with pytest.raises(ValueError):
+        l2.set_item_collections(catalog, "a", "c1")
+
+
+def edit_state():
+    settings = default_settings()
+    catalog = two_collections()
+    return device_state(catalog, settings, l3.build_playlist(catalog, settings, 1), 0)
+
+
+def test_edit_item_changes_everything_at_once():
+    state = l3.apply_command(edit_state(), {
+        "op": "editItem", "mediaId": "a", "name": "new", "tags": ["Коты", "зима"], "collectionIds": ["c2"],
+    }, 1)
+    found = l2.find_item(state["catalog"], "a")
+    assert (found["name"], found["tags"]) == ("new", ["зима", "коты"])
+    assert l2.find_collection(state["catalog"], "c1")["mediaIds"] == ["b"]
+    assert l2.find_collection(state["catalog"], "c2")["mediaIds"] == ["a"]
+
+
+def test_edit_item_leaves_out_what_is_not_sent():
+    state = l3.apply_command(edit_state(), {"op": "editItem", "mediaId": "a", "tags": ["x"]}, 1)
+    assert l2.find_item(state["catalog"], "a")["name"] == "pic"
+    assert l2.find_collection(state["catalog"], "c1")["mediaIds"] == ["a", "b"]
+
+
+def test_edit_item_with_unknown_collection_is_refused_as_a_whole():
+    state = edit_state()
+    with pytest.raises(KeyError):
+        l3.apply_command(state, {"op": "editItem", "mediaId": "a", "name": "new", "collectionIds": ["nope"]}, 1)
+    assert l2.find_item(state["catalog"], "a")["name"] == "pic"

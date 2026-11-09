@@ -37,9 +37,13 @@
     <section class="card" id="add">
       <h2>Добавить</h2>
       <label class="drop" id="drop">
-        <input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
-        <span id="drop-text">Выбери картинку или GIF (или перетащи сюда)</span>
+        <input id="file" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,.py">
+        <span id="drop-text">Выбери картинки, GIF или сцены .py (или перетащи сюда)</span>
       </label>
+      <ul id="queue" class="queue" hidden></ul>
+      <p class="muted" id="scene-note" hidden>Сцена - это программа на MicroPython с функцией <code>run(stop)</code>.
+        Она сможет прочитать всё на Presto, поэтому загружай только свои или проверенные файлы.</p>
+      <p class="warning" id="scene-off" hidden>Загрузка сцен отключена, пока не задан пароль.</p>
       <div class="add-grid">
         <div class="preview-box">
           <canvas id="preview" width="256" height="256"></canvas>
@@ -53,6 +57,10 @@
           <p id="preview-info" class="muted">Нет файла</p>
         </div>
         <form id="settings-form" class="fields">
+          <div class="wide setup-note" id="setup-note" hidden>
+            <span id="setup-text"></span>
+            <button id="setup-reset" type="button" hidden>Как у первого</button>
+          </div>
           <label>Сетка
             <select name="gridSize">
               <option value="16">16 × 16</option>
@@ -87,40 +95,23 @@
           <label class="check"><input name="dither" type="checkbox"> Дизеринг</label>
           <p class="wide warning" id="grid-warning" hidden>На такой сетке на Presto сохранится
             хорошо узнаваемое изображение.</p>
-          <label class="wide">Название
+          <label class="wide" id="name-field">Название
             <input name="name" type="text" maxlength="64" placeholder="по имени файла">
           </label>
-          <label class="wide">Теги (через запятую)
+          <label class="wide">Теги (нажми на готовый или напиши через запятую)
             <input name="tags" type="text" placeholder="коты, зима" list="tag-list">
           </label>
           <div class="chips wide" id="tag-suggest"></div>
+          <label class="wide">Добавить в коллекцию
+            <select name="collection"><option value="">Без коллекции</option></select>
+          </label>
         </form>
       </div>
       <div class="actions">
         <button id="upload" type="button" class="primary" disabled>Загрузить на Presto</button>
+        <button id="upload-cancel" type="button" hidden>Остановить</button>
+        <button id="queue-clear" type="button" hidden>Очистить</button>
         <span id="upload-msg" class="muted" role="status"></span>
-      </div>
-    </section>
-
-    <section class="card" id="scene-add">
-      <h2>Добавить сцену</h2>
-      <p class="muted">Сцена — это программа на MicroPython с функцией <code>run(stop)</code>. Она сможет
-        прочитать всё на Presto, поэтому загружай только свои или проверенные файлы.</p>
-      <p class="warning" id="scene-off" hidden>Загрузка сцен отключена, пока не задан пароль.</p>
-      <form id="scene-form" class="fields">
-        <label class="wide">Файл .py
-          <input id="scene-file" type="file" accept=".py,text/x-python,text/plain">
-        </label>
-        <label>Название
-          <input name="name" type="text" maxlength="64" placeholder="по имени файла">
-        </label>
-        <label>Теги (через запятую)
-          <input name="tags" type="text" list="tag-list">
-        </label>
-      </form>
-      <div class="actions">
-        <button id="scene-upload" type="button" class="primary">Загрузить сцену</button>
-        <span id="scene-msg" class="muted" role="status"></span>
       </div>
     </section>
 
@@ -132,8 +123,10 @@
           <label class="check"><input type="radio" name="showMode" value="images"> Картинки</label>
           <label class="check"><input type="radio" name="showMode" value="animations"> Гифки</label>
           <label class="check"><input type="radio" name="showMode" value="scenes"> Сцены</label>
+          <label class="check"><input type="radio" name="showMode" value="collection"> Коллекция</label>
           <label class="check"><input type="radio" name="showMode" value="tags"> По тегам</label>
         </fieldset>
+        <select class="wide" id="mode-collection" aria-label="Коллекция" hidden></select>
         <div class="chips wide" id="mode-tags"></div>
         <label>Секунд на слайд
           <input name="slideSeconds" type="number" min="3" max="600" value="10">
@@ -146,18 +139,50 @@
       </div>
     </section>
 
+    <section class="card" id="collections">
+      <h2>Коллекции</h2>
+      <p class="muted" id="collections-empty">Коллекций пока нет. Создай первую и добавляй в неё файлы из библиотеки.</p>
+      <ul id="collections-list" class="collections"></ul>
+      <form id="collection-form" class="inline-form">
+        <input id="collection-name" type="text" maxlength="64" placeholder="Название новой коллекции" aria-label="Название новой коллекции">
+        <button id="collection-create" type="button">Создать</button>
+      </form>
+      <span id="collection-msg" class="muted" role="status"></span>
+    </section>
+
     <section class="card" id="library">
       <div class="lib-head">
         <h2>Библиотека <span id="lib-count" class="muted"></span></h2>
-        <select id="lib-filter" aria-label="Фильтр по тегу"><option value="">Все теги</option></select>
+        <div class="lib-filters">
+          <select id="lib-collection" aria-label="Фильтр по коллекции"><option value="">Все коллекции</option></select>
+          <select id="lib-filter" aria-label="Фильтр по тегу"><option value="">Все теги</option></select>
+        </div>
       </div>
       <p id="storage" class="muted"></p>
+      <div class="bulk" id="bulk">
+        <div class="bulk-row">
+          <strong id="bulk-count">Выбрано: 0</strong>
+          <button id="bulk-all" type="button">Выбрать все</button>
+          <button id="bulk-clear" type="button">Снять</button>
+          <button id="bulk-delete" type="button" class="danger">Удалить</button>
+        </div>
+        <div class="bulk-row">
+          <input id="bulk-tag" type="text" maxlength="24" placeholder="Тег" list="tag-list" aria-label="Тег для выбранных">
+          <button id="bulk-tag-add" type="button">Добавить тег</button>
+        </div>
+        <div class="bulk-row">
+          <select id="bulk-collection" aria-label="Коллекция для выбранных"></select>
+          <button id="bulk-collection-add" type="button">В коллекцию</button>
+        </div>
+        <span id="bulk-msg" class="muted" role="status"></span>
+      </div>
       <ul id="items" class="items"></ul>
     </section>
   </main>
 
   <template id="item-template">
     <li class="item">
+      <input class="pick" type="checkbox">
       <canvas width="96" height="96"></canvas>
       <div class="meta">
         <strong class="name"></strong>
@@ -167,11 +192,33 @@
       <div class="item-actions">
         <button type="button" data-action="show">Показать</button>
         <button type="button" data-action="enable" hidden>Включить</button>
+        <button type="button" data-action="uncollect" hidden>Убрать из коллекции</button>
         <button type="button" data-action="edit">Изменить</button>
         <button type="button" data-action="delete" class="danger">Удалить</button>
       </div>
     </li>
   </template>
+  <dialog id="edit-dialog" class="edit-dialog">
+    <form id="edit-form" class="fields">
+      <h2 class="wide">Изменить файл</h2>
+      <label class="wide">Название
+        <input name="name" type="text" maxlength="64" required>
+      </label>
+      <label class="wide">Теги (нажми на готовый или напиши через запятую)
+        <input name="tags" type="text" list="tag-list">
+      </label>
+      <div class="chips wide" id="edit-tag-labels"></div>
+      <div class="wide edit-group">
+        <span class="muted">Коллекции</span>
+        <div class="chips" id="edit-collections"></div>
+      </div>
+      <div class="actions wide">
+        <button id="edit-save" type="submit" class="primary">Сохранить</button>
+        <button id="edit-cancel" type="button">Отмена</button>
+        <span id="edit-msg" class="muted" role="status"></span>
+      </div>
+    </form>
+  </dialog>
   <datalist id="tag-list"></datalist>
   <script type="module" src="/web/js/l5-ui.js"></script>
 </body>

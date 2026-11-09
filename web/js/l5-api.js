@@ -33,18 +33,28 @@ async function request(method, path, body, headers = {}) {
 
 const json = (value) => [JSON.stringify(value), { 'Content-Type': 'application/json' }];
 
-const query = (name, tags) => `?name=${encodeURIComponent(name)}&tags=${encodeURIComponent(tags.join(','))}`;
+/** options: {show: false} keeps the current slide, {collection: id} also adds the item there. */
+function query(name, tags, { show = true, collection = '' } = {}) {
+  return `?name=${encodeURIComponent(name)}&tags=${encodeURIComponent(tags.join(','))}`
+    + `${show ? '' : '&show=0'}${collection ? `&collection=${encodeURIComponent(collection)}` : ''}`;
+}
 
 export const api = {
   status: () => request('GET', '/api/status'),
   listMedia: () => request('GET', '/api/media'),
   mediaFile: (id) => request('GET', `/api/media/${id}/file`),
-  upload: (bytes, name, tags) => request('POST', `/api/media${query(name, tags)}`,
+  upload: (bytes, name, tags, options) => request('POST', `/api/media${query(name, tags, options)}`,
     bytes, { 'Content-Type': 'application/octet-stream' }),
-  uploadScene: (bytes, name, tags) => request('POST', `/api/scenes${query(name, tags)}`,
+  uploadScene: (bytes, name, tags, options) => request('POST', `/api/scenes${query(name, tags, options)}`,
     bytes, { 'Content-Type': 'text/plain' }),
   patchMedia: (id, changes) => request('PATCH', `/api/media/${id}`, ...json(changes)),
   removeMedia: (id) => request('DELETE', `/api/media/${id}`),
+  bulk: (changes) => request('POST', '/api/media/bulk', ...json(changes)),
+  listCollections: () => request('GET', '/api/collections'),
+  createCollection: (name) => request('POST', '/api/collections', ...json({ name })),
+  renameCollection: (id, name) => request('PATCH', `/api/collections/${id}`, ...json({ name })),
+  deleteCollection: (id) => request('DELETE', `/api/collections/${id}`),
+  removeFromCollection: (id, mediaId) => request('DELETE', `/api/collections/${id}/items/${mediaId}`),
   showMedia: (id) => request('POST', `/api/media/${id}/show`),
   next: () => request('POST', '/api/next'),
   prev: () => request('POST', '/api/prev'),

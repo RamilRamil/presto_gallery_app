@@ -1,8 +1,10 @@
 // LAYER 5 (actions): DOM, files, canvas, timers. Talks to layers 3/4 and the HttpApi client.
 
 import {
-  binByteSize, checkLimits, checkSceneSize, cropWindow, defaultCropView, gifFirstFrame, gridLimits,
-  makeSettings, nameFromFile, panCropView, parseTags, pixelizeFile, zoomCropView,
+  addToQueue, binByteSize, changeSetup, checkLimits, checkSceneSize, cropWindow, defaultCropView,
+  entrySetup, fromRelativeView, gifFirstFrame, gifSize, gridLimits, hasOwnSetup, makeSettings, nextPending,
+  panCropView, parseTags, pixelizeFile, queueSummary, referenceEntry, removeFromQueue, resetEntry,
+  retryFailed, setQueueEntry, toRelativeView, toggleTag, zoomCropView,
 } from './l3-pipeline.js';
 import { decodePrestoBin, encodePrestoBin, renderPixelArt } from './l4-encoders.js';
 import { api, setPassword } from './l5-api.js';
@@ -14,12 +16,16 @@ const SETTLE_DELAY_MS = 250;
 const PREVIEW_SIDE = 256;
 const WHEEL_SPEED = 0.002;
 const MODE_NAMES = {
-  all: 'всё', images: 'картинки', animations: 'гифки', scenes: 'сцены', tags: 'по тегам',
+  all: 'всё', images: 'картинки', animations: 'гифки', scenes: 'сцены', collection: 'коллекция', tags: 'по тегам',
 };
+const STATE_NAMES = { waiting: 'ждёт', uploading: 'загружается', done: 'готово', failed: 'ошибка' };
 
 const ui = {
-  file: null, fileBytes: null, fileImage: null, art: null, sceneFile: null, locked: false,
+  file: null, fileBytes: null, fileImage: null, art: null, artProblem: false, locked: false,
   source: null, sourceCanvas: null, view: null, pointers: new Map(),
+  queue: [], shared: null, activeId: null, uploading: false, cancelRequested: false, passwordSet: true,
+  editing: null,
+  collections: [], selected: new Set(), visibleIds: [],
   convertTimer: null, previewPlayer: null, items: [], tags: [], settings: null, thumbs: new Map(),
 };
 
@@ -82,22 +88,52 @@ function isGif(file, bytes) {
 
 // --- add & convert -----------------------------------------------------------------------
 
-function formSettings() {
+const SETUP_READERS = {
+  gridSize: (form) => Number(form.gridSize.value),
+  colorCount: (form) => Number(form.colorCount.value),
+  paletteName: (form) => form.paletteName.value,
+  fitMode: (form) => form.fitMode.value,
+  dither: (form) => form.dither.checked,
+  backgroundColor: (form) => form.backgroundColor.value,
+  tags: (form) => form.tags.value,
+  collection: (form) => form.collection.value,
+};
+
+function formSetup() {
   const form = $('#settings-form');
-  const paletteName = form.paletteName.value;
-  $('#colors-field').hidden = paletteName !== 'adaptive';
-  return makeSettings({
-    gridSize: Number(form.gridSize.value),
-    colorCount: Number(form.colorCount.value),
-    paletteName,
-    fitMode: form.fitMode.value,
-    dither: form.dither.checked,
-    backgroundColor: form.backgroundColor.value,
-  });
+  return Object.fromEntries(Object.entries(SETUP_READERS).map(([name, read]) => [name, read(form)]));
+}
+
+const formSettings = () => makeSettings(formSetup());
+
+function renderPaletteFields() {
+  $('#colors-field').hidden = $('#settings-form').paletteName.value !== 'adaptive';
+}
+
+function showSetupInForm(setup) {
+  const form = $('#settings-form');
+  form.gridSize.value = setup.gridSize;
+  form.colorCount.value = setup.colorCount;
+  form.paletteName.value = setup.paletteName;
+  form.fitMode.value = setup.fitMode;
+  form.dither.checked = setup.dither;
+  form.backgroundColor.value = setup.backgroundColor;
+  form.tags.value = setup.tags;
+  form.collection.value = setup.collection;
+  renderPaletteFields();
+  renderGridHint();
+  renderUploadTags();
+}
+
+/** Record values set for the open file; on the reference file they reach the others too. */
+function changeActive(values) {
+  ({ queue: ui.queue, shared: ui.shared } = changeSetup(
+    { queue: ui.queue, shared: ui.shared }, ui.activeId, values,
+  ));
 }
 
 function convert() {
-  if (!ui.file) return;
+  if (!ui.file || !ui.source) return;
   const info = $('#preview-info');
   ui.previewPlayer?.stop();
   try {
@@ -110,12 +146,13 @@ function convert() {
     const frames = ui.art.frames.length;
     info.textContent = problem || `${ui.art.width}×${ui.art.height}, ${frames > 1 ? frames + ' кадров, ' : ''}`
       + `${ui.art.palette.length} цветов, ${(binByteSize(ui.art) / 1024).toFixed(1)} КБ`;
-    $('#upload').disabled = Boolean(problem);
+    ui.artProblem = Boolean(problem);
   } catch (error) {
     ui.art = null;
+    ui.artProblem = true;
     info.textContent = `Ошибка: ${error.message}`;
-    $('#upload').disabled = true;
   }
+  renderQueue();
 }
 
 function scheduleConvert(delay = CONVERT_DELAY_MS) {
@@ -164,6 +201,7 @@ function drawFastPreview() {
 
 function applyView(view) {
   ui.view = view;
+  changeActive({ view: toRelativeView(view, ui.source.width, ui.source.height) });
   $('#upload').disabled = true;  // the current ui.art no longer matches the view
   renderCropControls();
   drawFastPreview();
@@ -234,86 +272,265 @@ function renderGridHint() {
   $('#grid-warning').hidden = !limits.recognizable;
 }
 
-async function onFile(file) {
-  if (!file) return;
-  ui.file = file;
-  $('#drop-text').textContent = file.name;
-  $('#settings-form').name.value = nameFromFile(file.name);
-  $('#preview-info').textContent = 'Обрабатываю…';
+// --- UploadQueue --------------------------------------------------------------------------
+
+const activeEntry = () => ui.queue.find((entry) => entry.id === ui.activeId) || null;
+
+function renderUploadControls() {
+  const { total, pending, failed } = queueSummary(ui.queue);
+  const toSend = pending + failed;
+  const active = activeEntry();
+  const blocked = total === 1 && active && active.kind === 'media' && (!ui.art || ui.artProblem);
+  const button = $('#upload');
+  button.disabled = ui.uploading || toSend === 0 || blocked;
+  button.textContent = total > 1 ? `Загрузить все (${toSend})` : 'Загрузить на Presto';
+  $('#upload-cancel').hidden = !ui.uploading;
+  $('#queue-clear').hidden = ui.uploading || total === 0;
+  $('#name-field').hidden = total > 1;
+  $('#scene-note').hidden = !ui.queue.some((entry) => entry.kind === 'scene');
+  $('#scene-off').hidden = ui.passwordSet || !ui.queue.some((entry) => entry.kind === 'scene');
+  renderSetupNote();
+}
+
+function renderSetupNote() {
+  const active = activeEntry();
+  const note = $('#setup-note');
+  note.hidden = !active || ui.queue.length < 2;
+  if (note.hidden) return;
+  const own = hasOwnSetup(active);
+  $('#setup-reset').hidden = !own;
+  $('#setup-text').textContent = own
+    ? 'У этого файла есть свои значения. Остальное он берёт у первого файла.'
+    : referenceEntry(ui.queue).id === active.id
+      ? 'Что настроишь здесь, применится к остальным файлам. Значения, заданные у них вручную, останутся.'
+      : 'Настройки как у первого файла. Что изменишь здесь, останется только у этого файла.';
+}
+
+function resetActiveSetup() {
+  ui.queue = resetEntry(ui.queue, ui.activeId);
+  activate(ui.activeId);
+}
+
+/** "образец · ждёт": what the row follows, then its upload state. */
+function queueRowState(entry) {
+  const role = ui.queue.length < 2 ? ''
+    : hasOwnSetup(entry) ? 'своё · '
+      : referenceEntry(ui.queue).id === entry.id ? 'образец · ' : '';
+  return `${role}${STATE_NAMES[entry.state]}${entry.error ? `: ${entry.error}` : ''}`;
+}
+
+function renderQueue() {
+  const list = $('#queue');
+  list.hidden = ui.queue.length < 2;
+  list.replaceChildren(...ui.queue.map((entry) => {
+    const row = document.createElement('li');
+    row.className = `queue-row ${entry.state}${entry.id === ui.activeId ? ' active' : ''}`;
+    const open = Object.assign(document.createElement('button'), {
+      type: 'button', className: 'queue-name', textContent: entry.name,
+    });
+    open.addEventListener('click', () => activate(entry.id));
+    const state = Object.assign(document.createElement('span'), {
+      className: 'muted',
+      textContent: queueRowState(entry),
+    });
+    const remove = Object.assign(document.createElement('button'), {
+      type: 'button', textContent: '×', disabled: ui.uploading,
+    });
+    remove.setAttribute('aria-label', `Убрать ${entry.name}`);
+    remove.addEventListener('click', () => removeEntry(entry.id));
+    row.append(open, state, remove);
+    return row;
+  }));
+  renderUploadControls();
+}
+
+function clearPreview() {
+  ui.file = null;
+  ui.art = null;
+  ui.artProblem = false;
+  ui.fileBytes = null;
+  ui.fileImage = null;
+  ui.source = null;
+  ui.sourceCanvas = null;
+  ui.view = null;
+  ui.previewPlayer?.stop();
+  const canvas = $('#preview');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  renderCropControls();
+}
+
+/** Show one queue file in the preview; only this file is decoded and kept in memory. */
+async function activate(id) {
+  const entry = ui.queue.find((candidate) => candidate.id === id);
+  if (!entry) return;
+  ui.activeId = id;
+  clearPreview();
+  ui.file = entry.file;
+  $('#drop-text').textContent = ui.queue.length > 1 ? `Файлов: ${ui.queue.length}` : entry.file.name;
+  $('#settings-form').name.value = entry.name;
   $('#upload-msg').textContent = '';
+  showSetupInForm(entrySetup(entry, ui.shared));
+  renderQueue();
+  if (entry.kind === 'scene') {
+    $('#preview-info').textContent = `Сцена «${entry.name}» загрузится как есть`;
+    renderUploadControls();
+    return;
+  }
+  $('#preview-info').textContent = 'Обрабатываю…';
   try {
-    ui.fileBytes = new Uint8Array(await file.arrayBuffer());
-    ui.fileImage = isGif(file, ui.fileBytes) ? null : await decodeImageFile(file);
-    setSource(ui.fileImage || gifFirstFrame(ui.fileBytes));
+    const bytes = new Uint8Array(await entry.file.arrayBuffer());
+    const image = isGif(entry.file, bytes) ? null : await decodeImageFile(entry.file);
+    if (ui.activeId !== id) return;  // the user has already opened another file
+    ui.fileBytes = bytes;
+    ui.fileImage = image;
+    setSource(image || gifFirstFrame(bytes));
+    const { view, fitMode } = entrySetup(activeEntry(), ui.shared);
+    if (view) ui.view = fromRelativeView(view, ui.source.width, ui.source.height, fitMode === 'fit');
     renderCropControls();
     convert();
   } catch (error) {
-    ui.file = null;
-    ui.source = null;
-    ui.view = null;
-    renderCropControls();
+    if (ui.activeId !== id) return;
+    clearPreview();
+    ui.artProblem = true;
     $('#preview-info').textContent = `Не получилось прочитать файл: ${error.message}`;
-    $('#upload').disabled = true;
+    renderUploadControls();
   }
 }
 
-async function upload() {
-  if (!ui.art) return;
-  const form = $('#settings-form');
-  const message = $('#upload-msg');
-  $('#upload').disabled = true;
-  message.textContent = 'Загружаю…';
-  try {
-    const item = await api.upload(encodePrestoBin(ui.art), form.name.value.trim() || nameFromFile(ui.file.name),
-      parseTags(form.tags.value));
-    message.textContent = `Готово: «${item.name}» уже на экране`;
-    await refreshAll();
-  } catch (error) {
-    message.textContent = `Ошибка: ${error.message}`;
-  } finally {
-    $('#upload').disabled = !ui.art;
-  }
+function addFiles(files) {
+  if (!files.length || ui.uploading) return;
+  const before = new Set(ui.queue.map((entry) => entry.id));
+  if (ui.queue.every((entry) => entry.state === 'done')) ui.shared = { ...ui.shared, view: null };  // a new batch
+  ui.queue = addToQueue(ui.queue, files);
+  renderQueue();
+  const fresh = ui.queue.find((entry) => !before.has(entry.id));
+  if (!activeEntry() || (fresh && before.size === 0)) activate((fresh || ui.queue[0]).id);
+  else if (activeEntry().state === 'done' && fresh) activate(fresh.id);
 }
 
-async function uploadScene() {
-  const form = $('#scene-form');
-  const message = $('#scene-msg');
-  if (!ui.sceneFile) {
-    message.textContent = 'Выбери файл сцены';
-    return;
+function removeEntry(id) {
+  ui.queue = removeFromQueue(ui.queue, id);
+  if (ui.activeId === id) {
+    ui.activeId = null;
+    clearPreview();
+    $('#preview-info').textContent = 'Нет файла';
+    if (ui.queue.length) activate(ui.queue[0].id);
   }
-  $('#scene-upload').disabled = true;
-  message.textContent = 'Загружаю…';
-  try {
-    const bytes = new Uint8Array(await ui.sceneFile.arrayBuffer());
+  renderQueue();
+}
+
+function clearQueue() {
+  ui.queue = [];
+  ui.shared = { ...ui.shared, view: null };
+  ui.activeId = null;
+  clearPreview();
+  $('#preview-info').textContent = 'Нет файла';
+  $('#drop-text').textContent = 'Выбери картинки, GIF или сцены .py (или перетащи сюда)';
+  $('#file').value = '';
+  $('#upload-msg').textContent = '';
+  renderQueue();
+}
+
+async function artFor(entry, setup) {
+  if (entry.id === ui.activeId && ui.art) return ui.art;
+  const settings = makeSettings(setup);
+  const viewFor = ({ width, height }) => (setup.view
+    ? fromRelativeView(setup.view, width, height, setup.fitMode === 'fit')
+    : null);
+  const bytes = new Uint8Array(await entry.file.arrayBuffer());
+  if (isGif(entry.file, bytes)) return pixelizeFile('gif', bytes, settings, viewFor(gifSize(bytes)));
+  const image = await decodeImageFile(entry.file);
+  return pixelizeFile('image', image, settings, viewFor(image));
+}
+
+async function sendEntry(entry, show) {
+  const setup = entrySetup(entry, ui.shared);
+  const tags = parseTags(setup.tags);
+  const options = { show, collection: setup.collection };
+  if (entry.kind === 'scene') {
+    const bytes = new Uint8Array(await entry.file.arrayBuffer());
     const problem = checkSceneSize(bytes.length);
     if (problem) throw new Error(problem);
-    const item = await api.uploadScene(bytes, form.name.value.trim() || nameFromFile(ui.sceneFile.name),
-      parseTags(form.tags.value));
-    message.textContent = `Готово: «${item.name}» уже на экране`;
-    form.reset();
-    ui.sceneFile = null;
+    return api.uploadScene(bytes, entry.name, tags, options);
+  }
+  const art = await artFor(entry, setup);
+  const problem = checkLimits(art);
+  if (problem) throw new Error(problem);
+  return api.upload(encodePrestoBin(art), entry.name, tags, options);
+}
+
+async function uploadQueue() {
+  const form = $('#settings-form');
+  const message = $('#upload-msg');
+  const single = ui.queue.length === 1;
+  if (single) ui.queue = setQueueEntry(ui.queue, ui.queue[0].id, { name: form.name.value.trim() || ui.queue[0].name });
+  ui.queue = retryFailed(ui.queue);
+  ui.uploading = true;
+  ui.cancelRequested = false;
+  const total = queueSummary(ui.queue).pending;
+  let sent = 0;
+  try {
+    for (let entry = nextPending(ui.queue); entry && !ui.cancelRequested; entry = nextPending(ui.queue)) {
+      ui.queue = setQueueEntry(ui.queue, entry.id, { state: 'uploading' });
+      renderQueue();
+      message.textContent = `${sent + 1} из ${total}…`;
+      try {
+        await sendEntry(entry, single);
+        ui.queue = setQueueEntry(ui.queue, entry.id, { state: 'done' });
+        sent += 1;
+      } catch (error) {
+        ui.queue = setQueueEntry(ui.queue, entry.id, { state: 'failed', error: error.message });
+        if (error.status === 401) {
+          lock();
+          return;
+        }
+      }
+    }
+    const { failed, pending } = queueSummary(ui.queue);
+    message.textContent = single && !failed
+      ? 'Готово: уже на экране'
+      : `Загружено ${sent} из ${total}${failed ? `, ошибок ${failed}` : ''}${pending ? ', остановлено' : ''}`;
     await refreshAll();
   } catch (error) {
     message.textContent = `Ошибка: ${error.message}`;
   } finally {
-    $('#scene-upload').disabled = false;
+    ui.uploading = false;
+    renderQueue();
   }
+}
+
+// --- labels -------------------------------------------------------------------------------
+
+function makeLabel(text, on, onClick) {
+  const chip = Object.assign(document.createElement('button'), {
+    type: 'button', className: `chip${on ? ' on' : ''}`, textContent: text,
+  });
+  chip.setAttribute('aria-pressed', String(on));
+  chip.addEventListener('click', () => onClick(chip));
+  return chip;
+}
+
+/** Labels of the existing Tags, drawn from the text field: a click adds or removes that Tag. */
+function renderTagLabels(box, field, onChange) {
+  const chosen = parseTags(field.value);
+  box.replaceChildren(...ui.tags.map(({ label }) => makeLabel(label, chosen.includes(label), () => {
+    field.value = toggleTag(field.value, label);
+    onChange();
+  })));
+}
+
+function renderUploadTags() {
+  renderTagLabels($('#tag-suggest'), $('#settings-form').tags, onUploadTagsChanged);
+}
+
+function onUploadTagsChanged() {
+  changeActive({ tags: $('#settings-form').tags.value });
+  renderUploadTags();
+  renderQueue();
 }
 
 function renderTagSuggestions() {
-  const box = $('#tag-suggest');
-  box.replaceChildren(...ui.tags.map(({ label }) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = label;
-    chip.addEventListener('click', () => {
-      const field = $('#settings-form').tags;
-      field.value = parseTags(`${field.value},${label}`).join(', ');
-    });
-    return chip;
-  }));
+  renderUploadTags();
   $('#tag-list').replaceChildren(...ui.tags.map(({ label }) => new Option(label)));
 }
 
@@ -328,6 +545,10 @@ function renderModeForm() {
   const selected = new Set(settings.selectedTags);
   const box = $('#mode-tags');
   box.hidden = settings.showMode !== 'tags';
+  const collectionSelect = $('#mode-collection');
+  collectionSelect.hidden = settings.showMode !== 'collection';
+  collectionSelect.replaceChildren(...ui.collections.map((c) => new Option(`${c.name} (${c.mediaIds.length})`, c.collectionId)));
+  if (settings.selectedCollection) collectionSelect.value = settings.selectedCollection;
   box.replaceChildren(...(ui.tags.length ? ui.tags.map(({ label, count }) => {
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -344,6 +565,7 @@ function modeFormValue() {
   return {
     showMode: form.showMode.value || 'all',
     selectedTags: [...$('#mode-tags').querySelectorAll('.chip.on')].map((c) => c.dataset.tag),
+    selectedCollection: $('#mode-collection').value || null,
     slideSeconds: Math.round(Number(form.slideSeconds.value) || 10),
     shuffle: form.shuffle.checked,
   };
@@ -356,11 +578,17 @@ async function saveMode() {
     message.textContent = 'Выбери хотя бы один тег';
     return;
   }
+  if (value.showMode === 'collection' && !value.selectedCollection) {
+    message.textContent = 'Сначала создай коллекцию';
+    return;
+  }
+  const chosen = ui.collections.find((c) => c.collectionId === value.selectedCollection);
   const matching = ui.items.filter((item) => !item.flagged
     && (value.showMode === 'images' ? item.frameCount === 1
       : value.showMode === 'animations' ? item.frameCount > 1
         : value.showMode === 'scenes' ? item.kind === 'scene'
-          : value.showMode === 'tags' ? item.tags.some((t) => value.selectedTags.includes(t)) : true));
+          : value.showMode === 'collection' ? chosen.mediaIds.includes(item.mediaId)
+            : value.showMode === 'tags' ? item.tags.some((t) => value.selectedTags.includes(t)) : true));
   try {
     ui.settings = await api.putSettings(value);
     renderModeForm();
@@ -388,8 +616,11 @@ function renderLibrary(brokenIds = []) {
   libraryPlayers.forEach((p) => p.stop());
   libraryPlayers = [];
   const filter = $('#lib-filter').value;
-  const items = ui.items.filter((item) => !filter || item.tags.includes(filter))
+  const collection = ui.collections.find((c) => c.collectionId === $('#lib-collection').value);
+  const items = ui.items.filter((item) => (!filter || item.tags.includes(filter))
+    && (!collection || collection.mediaIds.includes(item.mediaId)))
     .sort((a, b) => b.createdAt - a.createdAt);
+  ui.visibleIds = items.map((item) => item.mediaId);
   $('#lib-count').textContent = `· ${ui.items.length}`;
   const template = $('#item-template');
   $('#items').replaceChildren(...items.map((item) => {
@@ -418,6 +649,18 @@ function renderLibrary(brokenIds = []) {
     const enableButton = node.querySelector('[data-action=enable]');
     enableButton.hidden = !item.flagged;
     enableButton.addEventListener('click', () => enableScene(item));
+    const pick = node.querySelector('.pick');
+    pick.dataset.id = item.mediaId;
+    pick.checked = ui.selected.has(item.mediaId);
+    pick.setAttribute('aria-label', `Выбрать ${item.name}`);
+    pick.addEventListener('change', () => {
+      if (pick.checked) ui.selected.add(item.mediaId);
+      else ui.selected.delete(item.mediaId);
+      renderBulk();
+    });
+    const uncollect = node.querySelector('[data-action=uncollect]');
+    uncollect.hidden = !collection;
+    uncollect.addEventListener('click', () => removeFromShownCollection(collection, item));
     node.querySelector('[data-action=edit]').addEventListener('click', () => editItem(item));
     node.querySelector('[data-action=delete]').addEventListener('click', () => deleteItem(item));
     return node;
@@ -426,18 +669,192 @@ function renderLibrary(brokenIds = []) {
   filterSelect.replaceChildren(new Option('Все теги', ''),
     ...ui.tags.map(({ label, count }) => new Option(`${label} (${count})`, label)));
   filterSelect.value = ui.tags.some((t) => t.label === filter) ? filter : '';
+  renderBulk();
 }
 
-async function editItem(item) {
-  const name = prompt('Название', item.name);
-  if (name === null) return;
-  const tags = prompt('Теги через запятую', item.tags.join(', '));
-  if (tags === null) return;
+function renderBulk() {
+  const count = ui.selected.size;
+  $('#bulk-count').textContent = `Выбрано: ${count}`;
+  ['#bulk-clear', '#bulk-delete', '#bulk-tag-add', '#bulk-collection-add'].forEach((id) => {
+    $(id).disabled = count === 0;
+  });
+  $('#bulk-collection-add').disabled = count === 0 || ui.collections.length === 0;
+}
+
+function setVisibleSelection(selected) {
+  ui.visibleIds.forEach((id) => (selected ? ui.selected.add(id) : ui.selected.delete(id)));
+  document.querySelectorAll('#items .pick').forEach((box) => { box.checked = selected; });
+  renderBulk();
+}
+
+function clearSelection() {
+  ui.selected.clear();
+  document.querySelectorAll('#items .pick').forEach((box) => { box.checked = false; });
+  renderBulk();
+}
+
+async function runBulk(changes, done) {
+  const message = $('#bulk-msg');
+  const mediaIds = [...ui.selected];
   try {
-    await api.patchMedia(item.mediaId, { name: name.trim() || item.name, tags: parseTags(tags) });
+    await api.bulk({ ...changes, mediaIds });
+    message.textContent = done(mediaIds.length);
+    await refreshAll();
+  } catch (error) {
+    message.textContent = `Ошибка: ${error.message}`;
+  }
+}
+
+async function bulkDelete() {
+  const count = ui.selected.size;
+  if (!confirm(`Удалить выбранные файлы: ${count} шт.? Вернуть их будет нельзя.`)) return;
+  const ids = [...ui.selected];
+  await runBulk({ action: 'delete' }, (n) => `Удалено: ${n}`);
+  ids.forEach((id) => ui.thumbs.delete(id));
+}
+
+async function bulkAddTag() {
+  const [tag] = parseTags($('#bulk-tag').value);
+  if (!tag) {
+    $('#bulk-msg').textContent = 'Напиши тег';
+    return;
+  }
+  await runBulk({ action: 'addTag', tag }, (n) => `Тег «${tag}» добавлен: ${n}`);
+  $('#bulk-tag').value = '';
+}
+
+async function bulkAddToCollection() {
+  const collectionId = $('#bulk-collection').value;
+  const collection = ui.collections.find((c) => c.collectionId === collectionId);
+  if (!collection) return;
+  await runBulk({ action: 'addToCollection', collectionId }, (n) => `Добавлено в «${collection.name}»: ${n}`);
+}
+
+async function removeFromShownCollection(collection, item) {
+  try {
+    await api.removeFromCollection(collection.collectionId, item.mediaId);
     await refreshAll();
   } catch (error) {
     alert(`Ошибка: ${error.message}`);
+  }
+}
+
+// --- collections ---------------------------------------------------------------------------
+
+function fillCollectionSelect(select, firstLabel) {
+  const value = select.value;
+  select.replaceChildren(...(firstLabel === null ? [] : [new Option(firstLabel, '')]),
+    ...ui.collections.map((c) => new Option(`${c.name} (${c.mediaIds.length})`, c.collectionId)));
+  if ([...select.options].some((option) => option.value === value)) select.value = value;
+}
+
+function renderCollections() {
+  fillCollectionSelect($('#lib-collection'), 'Все коллекции');
+  fillCollectionSelect($('#settings-form').collection, 'Без коллекции');
+  fillCollectionSelect($('#bulk-collection'), null);
+  const list = $('#collections-list');
+  list.replaceChildren(...ui.collections.map((collection) => {
+    const row = document.createElement('li');
+    row.className = 'collection-row';
+    const name = Object.assign(document.createElement('span'), {
+      textContent: `${collection.name} · ${collection.mediaIds.length}`,
+    });
+    const rename = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Переименовать' });
+    rename.addEventListener('click', () => renameCollection(collection));
+    const remove = Object.assign(document.createElement('button'), {
+      type: 'button', textContent: 'Удалить', className: 'danger',
+    });
+    remove.addEventListener('click', () => deleteCollection(collection));
+    row.append(name, rename, remove);
+    return row;
+  }));
+  $('#collections-empty').hidden = ui.collections.length > 0;
+}
+
+async function createCollection() {
+  const field = $('#collection-name');
+  const name = field.value.trim();
+  const message = $('#collection-msg');
+  if (!name) {
+    message.textContent = 'Напиши название';
+    return;
+  }
+  try {
+    await api.createCollection(name);
+    field.value = '';
+    message.textContent = '';
+    await refreshAll();
+  } catch (error) {
+    message.textContent = `Ошибка: ${error.message}`;
+  }
+}
+
+async function renameCollection(collection) {
+  const name = prompt('Название коллекции', collection.name);
+  if (name === null || !name.trim()) return;
+  try {
+    await api.renameCollection(collection.collectionId, name.trim());
+    await refreshAll();
+  } catch (error) {
+    alert(`Ошибка: ${error.message}`);
+  }
+}
+
+async function deleteCollection(collection) {
+  if (!confirm(`Удалить коллекцию «${collection.name}»? Сами файлы останутся.`)) return;
+  try {
+    await api.deleteCollection(collection.collectionId);
+    await refreshAll();
+  } catch (error) {
+    alert(`Ошибка: ${error.message}`);
+  }
+}
+
+function renderEditTags() {
+  renderTagLabels($('#edit-tag-labels'), $('#edit-form').tags, renderEditTags);
+}
+
+function renderEditCollections(item) {
+  const box = $('#edit-collections');
+  box.replaceChildren(...(ui.collections.length ? ui.collections.map((collection) => {
+    const member = collection.mediaIds.includes(item.mediaId);
+    const chip = makeLabel(collection.name, member, (self) => {
+      self.setAttribute('aria-pressed', String(self.classList.toggle('on')));
+    });
+    chip.dataset.id = collection.collectionId;
+    return chip;
+  }) : [Object.assign(document.createElement('span'), { className: 'muted', textContent: 'Коллекций пока нет' })]));
+}
+
+function editItem(item) {
+  const form = $('#edit-form');
+  ui.editing = item;
+  form.name.value = item.name;
+  form.tags.value = item.tags.join(', ');
+  $('#edit-msg').textContent = '';
+  renderEditTags();
+  renderEditCollections(item);
+  $('#edit-dialog').showModal();
+}
+
+async function saveEdit() {
+  const form = $('#edit-form');
+  const item = ui.editing;
+  const save = $('#edit-save');
+  save.disabled = true;
+  try {
+    await api.patchMedia(item.mediaId, {
+      name: form.name.value.trim() || item.name,
+      tags: parseTags(form.tags.value),
+      collections: [...$('#edit-collections').querySelectorAll('.chip.on')].map((chip) => chip.dataset.id),
+    });
+    $('#edit-dialog').close();
+    await refreshAll();
+  } catch (error) {
+    if (error.status === 401) lock();
+    else $('#edit-msg').textContent = `Ошибка: ${error.message}`;
+  } finally {
+    save.disabled = false;
   }
 }
 
@@ -466,6 +883,7 @@ async function deleteItem(item) {
 function lock() {
   ui.locked = true;
   setPassword(null);
+  $('#edit-dialog').close();
   libraryPlayers.forEach((p) => p.stop());
   libraryPlayers = [];
   ui.thumbs.clear();
@@ -506,8 +924,8 @@ async function login() {
 function renderProtection(passwordSet) {
   $('#no-password').hidden = passwordSet;
   $('#logout').hidden = !passwordSet;
-  $('#scene-off').hidden = passwordSet;
-  $('#scene-upload').disabled = !passwordSet;
+  ui.passwordSet = passwordSet;
+  renderUploadControls();
 }
 
 async function refreshStatus() {
@@ -533,8 +951,13 @@ async function refreshStatus() {
 }
 
 async function refreshAll() {
-  [ui.items, ui.tags, ui.settings] = await Promise.all([api.listMedia(), api.tags(), api.getSettings()]);
+  [ui.items, ui.tags, ui.settings, ui.collections] = await Promise.all([
+    api.listMedia(), api.tags(), api.getSettings(), api.listCollections(),
+  ]);
+  const known = new Set(ui.items.map((item) => item.mediaId));
+  ui.selected = new Set([...ui.selected].filter((id) => known.has(id)));
   renderTagSuggestions();
+  renderCollections();
   renderModeForm();
   const status = await refreshStatus();
   renderLibrary(status ? status.brokenIds : []);
@@ -543,23 +966,33 @@ async function refreshAll() {
 // --- wiring ------------------------------------------------------------------------------
 
 function init() {
-  $('#file').addEventListener('change', (e) => onFile(e.target.files[0]));
+  $('#file').addEventListener('change', (e) => { addFiles([...e.target.files]); e.target.value = ''; });
   const drop = $('#drop');
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', (e) => {
     e.preventDefault();
     drop.classList.remove('over');
-    onFile(e.dataTransfer.files[0]);
+    addFiles([...e.dataTransfer.files]);
   });
   $('#settings-form').addEventListener('change', (e) => {
-    if (e.target.name === 'gridSize') renderGridHint();
-    if (e.target.name === 'fitMode' && ui.source) {  // zoom 1 means a different square in each mode
+    const { name } = e.target;
+    if (!(name in SETUP_READERS) || name === 'tags') return;
+    changeActive({ [name]: SETUP_READERS[name](e.currentTarget) });
+    renderQueue();
+    if (name === 'gridSize') renderGridHint();
+    if (name === 'paletteName') renderPaletteFields();
+    if (name === 'fitMode' && ui.source) {  // zoom 1 means a different square in each mode
       ui.view = defaultCropView(ui.source.width, ui.source.height);
       renderCropControls();
     }
-    if (!['name', 'tags'].includes(e.target.name)) scheduleConvert();
+    if (name !== 'collection') scheduleConvert();
   });
+  $('#settings-form').tags.addEventListener('input', onUploadTagsChanged);
+  $('#setup-reset').addEventListener('click', resetActiveSetup);
+  $('#edit-form').addEventListener('submit', (e) => { e.preventDefault(); saveEdit(); });
+  $('#edit-form').tags.addEventListener('input', renderEditTags);
+  $('#edit-cancel').addEventListener('click', () => $('#edit-dialog').close());
   const preview = $('#preview');
   preview.addEventListener('pointerdown', onPreviewPointerDown);
   preview.addEventListener('pointermove', onPreviewPointerMove);
@@ -569,23 +1002,31 @@ function init() {
   $('#crop-zoom').addEventListener('input', onZoomSlider);
   $('#crop-reset').addEventListener('click', resetCrop);
   $('#settings-form').addEventListener('submit', (e) => e.preventDefault());
-  $('#upload').addEventListener('click', upload);
-  $('#scene-file').addEventListener('change', (e) => {
-    ui.sceneFile = e.target.files[0] || null;
-    if (ui.sceneFile) $('#scene-form').name.value = nameFromFile(ui.sceneFile.name);
-  });
-  $('#scene-form').addEventListener('submit', (e) => e.preventDefault());
-  $('#scene-upload').addEventListener('click', uploadScene);
+  $('#upload').addEventListener('click', uploadQueue);
+  $('#upload-cancel').addEventListener('click', () => { ui.cancelRequested = true; });
+  $('#queue-clear').addEventListener('click', clearQueue);
+  $('#collection-create').addEventListener('click', createCollection);
+  $('#collection-form').addEventListener('submit', (e) => { e.preventDefault(); createCollection(); });
+  $('#bulk-all').addEventListener('click', () => setVisibleSelection(true));
+  $('#bulk-clear').addEventListener('click', clearSelection);
+  $('#bulk-delete').addEventListener('click', bulkDelete);
+  $('#bulk-tag-add').addEventListener('click', bulkAddTag);
+  $('#bulk-collection-add').addEventListener('click', bulkAddToCollection);
+  $('#lib-collection').addEventListener('change', () => refreshStatus().then((s) => renderLibrary(s ? s.brokenIds : [])));
   $('#login-form').addEventListener('submit', (e) => { e.preventDefault(); login(); });
   $('#logout').addEventListener('click', lock);
   $('#mode-form').addEventListener('change', (e) => {
-    if (e.target.name === 'showMode') $('#mode-tags').hidden = e.target.value !== 'tags';
+    if (e.target.name === 'showMode') {
+      $('#mode-tags').hidden = e.target.value !== 'tags';
+      $('#mode-collection').hidden = e.target.value !== 'collection';
+    }
   });
   $('#save-mode').addEventListener('click', saveMode);
   $('#lib-filter').addEventListener('change', () => refreshStatus().then((s) => renderLibrary(s ? s.brokenIds : [])));
   $('#next').addEventListener('click', () => api.next().then(refreshStatus));
   $('#prev').addEventListener('click', () => api.prev().then(refreshStatus));
-  formSettings();
+  ui.shared = { ...formSetup(), view: null };
+  renderPaletteFields();
   renderGridHint();
   // One request first: a locked gallery answers each failed request with a one-second delay.
   api.status().then(refreshAll).catch((error) => {

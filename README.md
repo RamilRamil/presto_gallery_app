@@ -26,3 +26,10 @@ Setup: [docs/device-setup.md](docs/device-setup.md). Try it locally without hard
 `.venv/bin/python device/sim/run_sim.py 8080` → http://localhost:8080.
 Browser and desktop share one quantization algorithm ([docs/pixelize-algorithm.md](docs/pixelize-algorithm.md)),
 checked byte-for-byte by golden vectors (`tests/golden/`). Tests: `.venv/bin/pytest` and `node --test web/test/`.
+
+## Working with the gallery
+
+In the web interface you can select many files at once, including `.py` Scenes, group files into
+Collections, and select files in the library to delete them, add a Tag or add them to a Collection.
+On the Presto, a long press opens a menu for choosing what to show. See
+[docs/device-setup.md](docs/device-setup.md) and [docs/scene-format.md](docs/scene-format.md).

@@ -122,6 +122,17 @@ export function zoomCropView(view, factor, anchorX, anchorY, width, height, fit 
   }, width, height, fit);
 }
 
+/** A CropView as {x, y, zoom}, with the center as a fraction of the picture, to share between files. */
+export function toRelativeView(view, width, height) {
+  return { x: view.centerX / width, y: view.centerY / height, zoom: view.zoom };
+}
+
+/** The CropView of a width x height picture for a relative view, kept inside the picture. */
+export function fromRelativeView(relative, width, height, fit = false) {
+  return clampCropView({ centerX: relative.x * width, centerY: relative.y * height, zoom: relative.zoom },
+    width, height, fit);
+}
+
 /** The view as a whole-pixel square {x, y, side}. Default views equal the center crop and fit.
  *  With `fit` the square may extend past the picture, so x and y may be negative. */
 export function cropWindow(view, width, height, fit = false) {

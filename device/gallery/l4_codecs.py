@@ -110,7 +110,10 @@ def catalog_from_json(text):
         item.setdefault("kind", KIND_PICTURE)
         item.setdefault("flagged", False)
         item.setdefault("error", None)
-    return {"formatVersion": CATALOG_FORMAT_VERSION, "items": items}
+    keys = ("collectionId", "name", "mediaIds")
+    collections = [c for c in data.get("collections", [])
+                   if isinstance(c, dict) and all(k in c for k in keys)]
+    return {"formatVersion": CATALOG_FORMAT_VERSION, "items": items, "collections": collections}
 
 
 def settings_to_json(settings):

@@ -10,7 +10,7 @@ import {
 } from './l2-image-ops.js';
 
 export {
-  MAX_CROP_ZOOM, cropWindow, defaultCropView, panCropView, zoomCropView,
+  MAX_CROP_ZOOM, cropWindow, defaultCropView, fromRelativeView, panCropView, toRelativeView, zoomCropView,
 } from './l1-primitives.js';
 
 export const PRESET_PALETTES = { 'pico-8': PICO8_PALETTE };
@@ -90,6 +90,11 @@ export function gifFirstFrame(bytes) {
   return decodeGif(bytes).frames[0].image;
 }
 
+/** Picture size written in a GIF's header. */
+export function gifSize(bytes) {
+  return { width: bytes[6] | (bytes[7] << 8), height: bytes[8] | (bytes[9] << 8) };
+}
+
 /** kind 'gif': input is GIF bytes; kind 'image': input is an RgbaImage. */
 export function pixelizeFile(kind, input, settings, view = null) {
   const background = settings.backgroundColor;
@@ -137,6 +142,96 @@ export function checkSceneSize(byteLength) {
   return null;
 }
 
+// --- UploadQueue: {id, file, name, kind, state, error, own} ----------------------------------
+// Setup = {gridSize, colorCount, paletteName, fitMode, dither, backgroundColor, view, tags, collection}.
+// `shared` is what the reference file sets; `own` holds only the values set on one file.
+
+export const MAX_QUEUE_FILES = 100;
+
+export function fileKind(fileName) {
+  return /\.py$/i.test(String(fileName)) ? 'scene' : 'media';
+}
+
+/** Append files after dropping finished rows; ids stay unique within the queue. */
+export function addToQueue(queue, files) {
+  const kept = queue.filter((entry) => entry.state !== 'done');
+  let nextId = queue.reduce((largest, entry) => Math.max(largest, entry.id), 0) + 1;
+  const added = [...files].slice(0, Math.max(0, MAX_QUEUE_FILES - kept.length)).map((file) => ({
+    id: nextId++, file, name: nameFromFile(file.name), kind: fileKind(file.name),
+    state: 'waiting', error: null, own: {},
+  }));
+  return [...kept, ...added];
+}
+
+export function setQueueEntry(queue, id, changes) {
+  return queue.map((entry) => (entry.id === id ? { ...entry, ...changes } : entry));
+}
+
+export function removeFromQueue(queue, id) {
+  return queue.filter((entry) => entry.id !== id);
+}
+
+export function retryFailed(queue) {
+  return queue.map((entry) => (entry.state === 'failed' ? { ...entry, state: 'waiting', error: null } : entry));
+}
+
+export function nextPending(queue) {
+  return queue.find((entry) => entry.state === 'waiting') || null;
+}
+
+export function queueSummary(queue) {
+  const count = (state) => queue.filter((entry) => entry.state === state).length;
+  return { total: queue.length, done: count('done'), failed: count('failed'), pending: count('waiting') };
+}
+
+/** The file whose changes apply to the others: the first picture or GIF, else the first file. */
+export function referenceEntry(queue) {
+  return queue.find((entry) => entry.kind === 'media') || queue[0] || null;
+}
+
+export function entrySetup(entry, shared) {
+  return { ...shared, ...entry.own };
+}
+
+export function hasOwnSetup(entry) {
+  return Object.keys(entry.own).length > 0;
+}
+
+function withoutKeys(values, keys) {
+  return Object.fromEntries(Object.entries(values).filter(([key]) => !keys.includes(key)));
+}
+
+/** Own values equal to the shared ones are dropped, so the file keeps following the reference. */
+function changeOwn(entry, changes, shared) {
+  const own = { ...entry.own, ...changes };
+  return { ...entry, own: Object.fromEntries(Object.entries(own).filter(([key, value]) => value !== shared[key])) };
+}
+
+/** Apply values set on file `id`: on the reference they go to everyone who follows it.
+ *  Changing fit resets the view, because zoom 1 means a different square in each mode. */
+export function changeSetup({ queue, shared }, id, values) {
+  const changes = 'fitMode' in values ? { ...values, view: null } : values;
+  const reference = referenceEntry(queue);
+  if (reference && reference.id !== id) {
+    return { shared, queue: queue.map((entry) => (entry.id === id ? changeOwn(entry, changes, shared) : entry)) };
+  }
+  const keys = Object.keys(changes);
+  return {
+    shared: { ...shared, ...changes },
+    queue: queue.map((entry) => {
+      if (reference && entry.id === reference.id) return { ...entry, own: withoutKeys(entry.own, keys) };
+      return 'fitMode' in values && !('fitMode' in entry.own)
+        ? { ...entry, own: withoutKeys(entry.own, ['view']) }
+        : entry;
+    }),
+  };
+}
+
+/** Forget the values set on this file. */
+export function resetEntry(queue, id) {
+  return setQueueEntry(queue, id, { own: {} });
+}
+
 export const TAG_MAX_LENGTH = 24;
 
 /** "Коты,  Winter sky , коты" -> ["winter sky", "коты"]: trimmed, lowercased, unique, sorted. */
@@ -146,6 +241,12 @@ export function parseTags(text) {
     .filter((t) => t.length > 0)
     .map((t) => t.slice(0, TAG_MAX_LENGTH).replace(/[/\\"<>]/g, ''));
   return [...new Set(tags)].sort();
+}
+
+/** Tag field text with `label` added, or removed if it is already there. */
+export function toggleTag(text, label) {
+  const tags = parseTags(text);
+  return (tags.includes(label) ? tags.filter((tag) => tag !== label) : parseTags(`${text},${label}`)).join(', ');
 }
 
 /** Default MediaItem name from a file name: "cat photo.jpg" -> "cat photo". */

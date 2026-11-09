@@ -37,15 +37,19 @@ mpremote cp device/secrets.py :secrets.py
 2. Open the address on a phone or computer in the same network.
 3. In the Keenetic web interface (Home network → device list → Presto) you can make the IP
    permanent ("Permanent IP address"), so the address never changes.
-4. Long press (1 s) on the screen shows the address again; tap right/left = next/previous.
+4. Tap right/left = next/previous. A long press (1 s) opens the menu: choose what to show, change
+   the slide time and shuffle; the address and free storage are under "Настройки".
 
 ## microSD
 
-Format the card as FAT32 and insert it before power-on. The app mounts it at `/sd` using the
-SPI pins from Pimoroni's Presto examples (SCK 34, MOSI 35, MISO 36, CS 39) and the `sdcard`
-driver. **Not yet verified on hardware**: if the screen says `storage: flash` with a card
-inserted, the pins or the driver are different; everything still works on flash with less space.
-Media lives in `/sd/gallery` (or `/gallery`): `media/<id>.bin`, `catalog.json`, `settings.json`.
+The card must be FAT32 and inserted before power-on. Other files on it are left alone. The app mounts
+it at `/sd` (SCK 34, MOSI 35, MISO 36, CS 39) with corrections to the firmware's `sdcard` driver, see
+`gallery/l5_sd.py`. If the screen says `storage: flash` with a card inserted, the card did not mount;
+everything still works on flash with less space.
+
+Media lives in `/sd/gallery` (or `/gallery`): `media/<id>.bin`, `scenes/`, `catalog.json`,
+`settings.json`. On the first start with a card, a gallery on flash is copied to it and the screen
+shows the progress. The copy on flash stays, and is what you see if the card is later removed.
 
 ## Try it without the Presto (simulator)
 

@@ -11,11 +11,15 @@ ALLOWED = {
     "l2_catalog": {"model", "l1_primitives"},
     "l3_playlist": {"model", "l1_primitives", "l2_catalog"},
     "l3_scene": set(),
+    "l3_menu": {"l1_font", "l2_catalog"},
+    "l1_font": set(),
     "l4_codecs": {"model", "l1_primitives"},
     "l5_clock": set(),
     "l5_blit": set(),
     "l5_scene": {"l5_clock"},
-    "l5_app": {"model", "l3_playlist", "l4_codecs", "l5_clock", "l5_scene", "l5_blit"},
+    "l5_menu": {"l3_menu", "l5_clock"},
+    "l5_sd": set(),
+    "l5_app": {"model", "l3_playlist", "l4_codecs", "l5_clock", "l5_scene", "l5_blit", "l5_menu", "l5_sd"},
 }
 IO_MODULES = {"os", "sys", "time", "network", "machine", "presto", "socket", "asyncio",
               "microdot", "random", "sdcard", "uos"}

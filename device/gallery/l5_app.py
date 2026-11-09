@@ -11,8 +11,8 @@ from microdot import Microdot, Request, Response, send_file
 import pixel
 
 from .l3_playlist import (
-    allocate_media_id, apply_command, item_by_id, slide_limit_ms, slide_plan, tag_counts,
-    validate_settings,
+    allocate_collection_id, allocate_media_id, apply_command, collection_by_id, item_by_id,
+    slide_limit_ms, slide_plan, tag_counts, validate_settings,
 )
 from .l4_codecs import (
     HEADER_SIZE, MAX_SCENE_BYTES, MAX_UPLOAD_BYTES, bearer_token, catalog_from_json,
@@ -20,16 +20,19 @@ from .l4_codecs import (
     read_palette, settings_from_json, settings_to_json, validate_scene_source, validate_upload,
 )
 from .l5_clock import ticks_diff, ticks_ms
+from .l5_menu import run_menu
 from .l5_scene import check_syntax, clear_running, make_stop, mark_running, run_scene
+from .l5_sd import exists, make_dirs, mount_sd, move_gallery, needs_move
 from .model import KIND_SCENE, device_state, media_item, scene_item
 
 VERSION = "003-fullscreen-scenes"
 CHUNK = 4096
 SPACE_MARGIN = 64 * 1024
 LONG_PRESS_MS = 1000
-INFO_MS = 5000
 AUTH_RETRY_MS = 1000
 NOT_RESPONDING = "not responding: restarted before its first stop() call"
+FLASH_BASE = "/gallery"
+SD_BASE = "/sd/gallery"
 
 DEFAULT_CONFIG = {
     "webRoot": "/web",
@@ -41,39 +44,6 @@ DEFAULT_CONFIG = {
 
 
 # --- storage ------------------------------------------------------------------------------
-
-def mount_sd():
-    """Mount microSD at /sd. Pins follow Pimoroni's Presto examples (verify on hardware)."""
-    try:
-        import machine
-        import sdcard
-        spi = machine.SPI(0, sck=machine.Pin(34, machine.Pin.OUT),
-                          mosi=machine.Pin(35, machine.Pin.OUT),
-                          miso=machine.Pin(36, machine.Pin.OUT))
-        os.mount(sdcard.SDCard(spi, machine.Pin(39)), "/sd")
-        return True
-    except Exception as error:  # no card, no driver or running in the simulator
-        print("microSD not mounted:", error)
-        return False
-
-
-def make_dirs(path):
-    current = "/" if path.startswith("/") else ""
-    for part in path.strip("/").split("/"):
-        current = current + part + "/"
-        try:
-            os.mkdir(current.rstrip("/"))
-        except OSError:
-            pass
-
-
-def exists(path):
-    try:
-        os.stat(path)
-        return True
-    except OSError:
-        return False
-
 
 def read_text(path):
     with open(path) as f:
@@ -100,6 +70,20 @@ def load_text(path):
             except OSError:
                 pass
     return ""
+
+
+def choose_storage(presto):
+    """(base, kind): the card when it works, first copying a gallery that lives on flash."""
+    if not mount_sd():
+        return FLASH_BASE, "flash"
+    if needs_move(FLASH_BASE, SD_BASE):
+        try:
+            move_gallery(FLASH_BASE, SD_BASE, lambda done, total: draw_message(
+                presto, ["moving files to microSD", "%d / %d" % (done, total)]))
+        except OSError as error:  # the catalog is copied last, so the next start tries again
+            print("gallery not moved:", error)
+            return FLASH_BASE, "flash"
+    return SD_BASE, "microSD"
 
 
 def storage_info(base, kind):
@@ -186,7 +170,8 @@ class GalleryApp:
         self.ip = None
         self.broken = set()
         self.wake = asyncio.Event()
-        self.info_requested = False
+        self.menu_requested = False
+        self.menu_active = False
         self.blitter = make_blitter(presto.display)
         password = config["password"]
         self.password = load_password() if password is None else password
@@ -195,8 +180,7 @@ class GalleryApp:
         base = config["storageBase"]
         kind = "custom"
         if base is None:
-            kind = "microSD" if mount_sd() else "flash"
-            base = "/sd/gallery" if kind == "microSD" else "/gallery"
+            base, kind = choose_storage(presto)
         self.base, self.storage_kind = base, kind
         make_dirs(base + "/media")
         make_dirs(base + "/scenes")
@@ -318,21 +302,19 @@ class GalleryApp:
             return True
         return await self.sleep_or_wake(0)
 
-    async def show_info(self):
-        settings = self.state["settings"]
-        mode = settings["showMode"]
-        if mode == "tags":
-            mode += ": " + ", ".join(settings["selectedTags"])
-        draw_message(self.presto, ["http://" + (self.ip or "no wifi"),
-                                   "http://%s.local" % self.config["hostname"], "mode: " + mode])
-        await self.sleep_or_wake(INFO_MS)
+    async def open_menu(self):
+        self.menu_active = True
+        try:
+            await run_menu(self)
+        finally:
+            self.menu_active = False
 
     async def play_loop(self):
         while True:
             self.wake.clear()
-            if self.info_requested:
-                self.info_requested = False
-                await self.show_info()
+            if self.menu_requested:
+                self.menu_requested = False
+                await self.open_menu()
                 continue
             state = self.state
             playlist = state["playlist"]
@@ -363,18 +345,18 @@ class GalleryApp:
         x = 0
         while True:
             touch.poll()
-            if touch.state:
+            if self.menu_active or self.menu_requested:
+                pressed_at = None  # the menu reads the touch screen itself
+            elif touch.state:
                 if pressed_at is None:
                     pressed_at = ticks_ms()
                 x = touch.x
-            elif pressed_at is not None:
-                held = ticks_diff(ticks_ms(), pressed_at)
-                pressed_at = None
-                if held >= LONG_PRESS_MS:
-                    self.info_requested = True
+                if ticks_diff(ticks_ms(), pressed_at) >= LONG_PRESS_MS:
+                    self.menu_requested = True
                     self.wake.set()
-                else:
-                    self.change({"op": "next" if x >= 120 else "prev"})
+            elif pressed_at is not None:
+                pressed_at = None
+                self.change({"op": "next" if x >= 120 else "prev"})
             await asyncio.sleep_ms(50) if hasattr(asyncio, "sleep_ms") else await asyncio.sleep(0.05)
 
     async def wifi_loop(self):
@@ -404,6 +386,20 @@ def build_server(app):
 
     def tags_from(args):
         return [t for t in (args.get("tags", "") or "").split(",") if t.strip()]
+
+    def upload_command(item, args):
+        command = {"op": "upload", "item": item, "show": args.get("show") != "0"}
+        if args.get("collection"):
+            command["collectionId"] = args.get("collection")
+        return command
+
+    def remove_files(media_id):
+        for path in (app.media_path(media_id), app.scene_path(media_id)):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        app.broken.discard(media_id)
 
     @server.before_request
     async def check_password(request):
@@ -479,7 +475,7 @@ def build_server(app):
         args = request.args
         item = media_item(media_id, args.get("name", "untitled") or "untitled", tags_from(args),
                           header["frameCount"], header["width"], length, int(time.time()))
-        state, error = run_command({"op": "upload", "item": item})
+        state, error = run_command(upload_command(item, args))
         if error:
             os.remove(app.media_path(media_id))
             return error
@@ -514,7 +510,7 @@ def build_server(app):
         args = request.args
         item = scene_item(media_id, args.get("name", "scene") or "scene", tags_from(args),
                           length, int(time.time()))
-        state, error = run_command({"op": "upload", "item": item})
+        state, error = run_command(upload_command(item, args))
         if error:
             os.remove(path)
             return error
@@ -531,12 +527,12 @@ def build_server(app):
     async def patch_media(request, media_id):
         body = request.json or {}
         state = None
-        if "name" in body:
-            state, error = run_command({"op": "rename", "mediaId": media_id, "name": body["name"]})
-            if error:
-                return error
-        if "tags" in body:
-            state, error = run_command({"op": "setTags", "mediaId": media_id, "tags": body["tags"]})
+        edit = {"op": "editItem", "mediaId": media_id}
+        for key, field in (("name", "name"), ("tags", "tags"), ("collections", "collectionIds")):
+            if key in body:
+                edit[field] = body[key]
+        if len(edit) > 2:  # one command: a bad value changes nothing, and flash is written once
+            state, error = run_command(edit)
             if error:
                 return error
         if body.get("flagged") is False:
@@ -552,13 +548,30 @@ def build_server(app):
         _, error = run_command({"op": "remove", "mediaId": media_id})
         if error:
             return error
-        for path in (app.media_path(media_id), app.scene_path(media_id)):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        app.broken.discard(media_id)
+        remove_files(media_id)
         return "", 204
+
+    @server.post("/api/media/bulk")
+    async def bulk_media(request):
+        body = request.json or {}
+        action = body.get("action")
+        media_ids = body.get("mediaIds", [])
+        if action == "delete":
+            command = {"op": "removeItems", "mediaIds": media_ids}
+        elif action == "addTag":
+            command = {"op": "addTag", "mediaIds": media_ids, "tag": body.get("tag", "")}
+        elif action == "addToCollection":
+            command = {"op": "addToCollection", "mediaIds": media_ids,
+                       "collectionId": body.get("collectionId", "")}
+        else:
+            return error_response(400, "unknown action")
+        _, error = run_command(command)
+        if error:
+            return error
+        if action == "delete":
+            for media_id in media_ids:
+                remove_files(media_id)
+        return {"count": len(media_ids)}
 
     @server.post("/api/media/<media_id>/show")
     async def show_media(request, media_id):
@@ -583,6 +596,40 @@ def build_server(app):
     async def put_settings(request):
         state, error = run_command({"op": "setSettings", "settings": request.json or {}})
         return error or state["settings"]
+
+    @server.get("/api/collections")
+    async def list_collections(request):
+        return app.state["catalog"]["collections"]
+
+    @server.post("/api/collections")
+    async def create_collection(request):
+        collection_id = allocate_collection_id(app.state["catalog"], ticks_ms())
+        name = (request.json or {}).get("name", "")
+        state, error = run_command({"op": "createCollection", "collectionId": collection_id, "name": name})
+        return error or (collection_by_id(state["catalog"], collection_id), 201)
+
+    @server.patch("/api/collections/<collection_id>")
+    async def rename_collection(request, collection_id):
+        name = (request.json or {}).get("name", "")
+        state, error = run_command({"op": "renameCollection", "collectionId": collection_id, "name": name})
+        return error or collection_by_id(state["catalog"], collection_id)
+
+    @server.delete("/api/collections/<collection_id>")
+    async def delete_collection(request, collection_id):
+        _, error = run_command({"op": "deleteCollection", "collectionId": collection_id})
+        return error or ("", 204)
+
+    @server.post("/api/collections/<collection_id>/items")
+    async def add_collection_items(request, collection_id):
+        state, error = run_command({"op": "addToCollection", "collectionId": collection_id,
+                                    "mediaIds": (request.json or {}).get("mediaIds", [])})
+        return error or collection_by_id(state["catalog"], collection_id)
+
+    @server.delete("/api/collections/<collection_id>/items/<media_id>")
+    async def remove_collection_item(request, collection_id, media_id):
+        _, error = run_command({"op": "removeFromCollection", "collectionId": collection_id,
+                                "mediaId": media_id})
+        return error or ("", 204)
 
     @server.get("/api/tags")
     async def tags(request):
