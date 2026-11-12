@@ -10,3 +10,4 @@ device/secrets.py
 .sim-storage/
 device-backup/
 node_modules/
+.DS_Store

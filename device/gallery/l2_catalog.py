@@ -1,7 +1,9 @@
 # LAYER 2 (calculations): pure Catalog operations. Every function returns a new catalog.
 
-from .l1_primitives import normalize_name, normalize_tags
-from .model import KIND_SCENE, collection
+from .l1_primitives import clamp, normalize_name, normalize_tag, normalize_tags
+from .model import (
+    DEFAULT_SPEED, KIND_SCENE, SLIDE_MAX_SECONDS, SLIDE_MIN_SECONDS, SPEED_PERCENTS, collection,
+)
 
 ERROR_MAX_LENGTH = 200
 
@@ -69,6 +71,28 @@ def add_tag_to_items(catalog, media_ids, tag):
     return catalog
 
 
+def rename_tag(catalog, tag, new_tag):
+    """Rename a Tag on every item; items that already have the new name end up with it once."""
+    clean = normalize_tag(new_tag)
+    return _replace_tag(catalog, tag, [clean])
+
+
+def remove_tag(catalog, tag):
+    """Remove a Tag from every item; the items stay."""
+    return _replace_tag(catalog, tag, [])
+
+
+def _replace_tag(catalog, tag, replacement):
+    if not any(tag in item["tags"] for item in catalog["items"]):
+        raise KeyError(tag)
+    items = []
+    for item in catalog["items"]:
+        if tag in item["tags"]:
+            item = dict(item, tags=normalize_tags([t for t in item["tags"] if t != tag] + replacement))
+        items.append(item)
+    return _with_items(catalog, items)
+
+
 def remove_items(catalog, media_ids):
     """Remove every listed item that exists."""
     for media_id in media_ids:
@@ -86,6 +110,23 @@ def set_flag(catalog, media_id, flagged, error):
         raise ValueError("only a scene can be flagged")
     catalog = _update(catalog, media_id, "flagged", flagged)
     return _update(catalog, media_id, "error", error[:ERROR_MAX_LENGTH] if error else None)
+
+
+def item_speed(item):
+    """The item's SceneSpeed; older entries and unknown values play at the default."""
+    speed = item.get("speedPercent", DEFAULT_SPEED)
+    return speed if speed in SPEED_PERCENTS else DEFAULT_SPEED
+
+
+def set_speed(catalog, media_id, percent):
+    item = find_item(catalog, media_id)
+    if item is None:
+        raise KeyError(media_id)
+    if item["kind"] != KIND_SCENE:
+        raise ValueError("only a scene has a speed")
+    if percent not in SPEED_PERCENTS:
+        raise ValueError("unknown speed")
+    return _update(catalog, media_id, "speedPercent", percent)
 
 
 def all_tags(catalog):
@@ -147,6 +188,73 @@ def add_to_collection(catalog, collection_id, media_ids):
         if media_id not in merged and find_item(catalog, media_id) is not None:
             merged.append(media_id)
     return _replace_collection(catalog, collection_id, {"mediaIds": merged})
+
+
+def collection_scenes(catalog, collection_id):
+    entry = find_collection(catalog, collection_id)
+    if entry is None:
+        raise KeyError(collection_id)
+    members = set(entry["mediaIds"])
+    return [i for i in catalog["items"] if i["mediaId"] in members and i["kind"] == KIND_SCENE]
+
+
+def common_speed(scenes):
+    """The SceneSpeed these Scenes share, or None when they differ or there are none."""
+    speeds = set(item_speed(scene) for scene in scenes)
+    return speeds.pop() if len(speeds) == 1 else None
+
+
+def set_collection_speed(catalog, collection_id, percent):
+    """Give every Scene of the Collection this SceneSpeed; other items stay as they are."""
+    if percent not in SPEED_PERCENTS:
+        raise ValueError("unknown speed")
+    ids = set(scene["mediaId"] for scene in collection_scenes(catalog, collection_id))
+    if not ids:
+        raise ValueError("this collection has no scenes")
+    return _with_items(catalog, [dict(i, speedPercent=percent) if i["mediaId"] in ids else i
+                                 for i in catalog["items"]])
+
+
+SHOW_KEYS = ("slideSeconds", "shuffle")
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def collection_show(entry):
+    """CollectionShowSettings: {slideSeconds, shuffle}, None where the Collection has no own value.
+    A damaged stored value counts as none, so the Collection still plays."""
+    seconds = entry.get("slideSeconds")
+    shuffle = entry.get("shuffle")
+    return {
+        "slideSeconds": clamp(seconds, SLIDE_MIN_SECONDS, SLIDE_MAX_SECONDS) if _is_int(seconds) else None,
+        "shuffle": shuffle if isinstance(shuffle, bool) else None,
+    }
+
+
+def set_collection_show(catalog, collection_id, changes):
+    """Set (a value) or clear (None) own slide time and order; keys not in `changes` stay."""
+    entry = find_collection(catalog, collection_id)
+    if entry is None:
+        raise KeyError(collection_id)
+    updated = dict(entry)
+    for key in changes:
+        if key not in SHOW_KEYS:
+            raise ValueError("unknown show setting " + key)
+        value = changes[key]
+        if value is None:
+            updated.pop(key, None)
+        elif key == "slideSeconds":
+            if not _is_int(value):
+                raise ValueError("slideSeconds must be an integer")
+            updated[key] = clamp(value, SLIDE_MIN_SECONDS, SLIDE_MAX_SECONDS)
+        else:
+            if not isinstance(value, bool):
+                raise ValueError("shuffle must be true or false")
+            updated[key] = value
+    return _with_collections(catalog, [
+        updated if c["collectionId"] == collection_id else c for c in catalog["collections"]])
 
 
 def remove_from_collection(catalog, collection_id, media_id):

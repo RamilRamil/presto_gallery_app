@@ -53,6 +53,9 @@ export const api = {
   listCollections: () => request('GET', '/api/collections'),
   createCollection: (name) => request('POST', '/api/collections', ...json({ name })),
   renameCollection: (id, name) => request('PATCH', `/api/collections/${id}`, ...json({ name })),
+  setCollectionSpeed: (id, speedPercent) => request('PATCH', `/api/collections/${id}`, ...json({ speedPercent })),
+  /** show: {slideSeconds, shuffle}, null clears a value (CollectionShowSettings). */
+  setCollectionShow: (id, show) => request('PATCH', `/api/collections/${id}`, ...json(show)),
   deleteCollection: (id) => request('DELETE', `/api/collections/${id}`),
   removeFromCollection: (id, mediaId) => request('DELETE', `/api/collections/${id}/items/${mediaId}`),
   showMedia: (id) => request('POST', `/api/media/${id}/show`),

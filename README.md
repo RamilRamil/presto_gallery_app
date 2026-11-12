@@ -1,6 +1,6 @@
 # PRESTO_PIC_LOADER
 
-Turns any PNG/JPEG/WebP into pixel art for the Pimoroni Presto (240×240).
+Turns any PNG/JPEG/WebP into pixel art for the Pimoroni Presto (480×480).
 
 ```bash
 uv venv .venv && uv pip install -p .venv -e '.[dev]'
@@ -11,7 +11,7 @@ cp ~/Pictures/cat.jpg inbox/
 ```
 
 Results go to `outbox/`: `<name>.preview.png` (8 px per cell) and `<name>.bin`
-([format](docs/bin-format.md)). Options: `--grid 16|32|40|60|64|80|120|240`, `--colors 2..256` or `--palette pico-8`,
+([format](docs/bin-format.md)). Options: `--grid 16|32|40|60|64|80|120|240|480`, `--colors 2..256` or `--palette pico-8`,
 `--fit crop|fit`, `--background #RRGGBB`, `--dither`, `--preview-scale N`, `--inbox`, `--outbox`.
 Exit codes: 0 ok, 1 some file failed, 2 bad options.
 
@@ -31,5 +31,6 @@ checked byte-for-byte by golden vectors (`tests/golden/`). Tests: `.venv/bin/pyt
 
 In the web interface you can select many files at once, including `.py` Scenes, group files into
 Collections, and select files in the library to delete them, add a Tag or add them to a Collection.
-On the Presto, a long press opens a menu for choosing what to show. See
+On the Presto, swipes change pictures and brightness, a tap pauses, and a long press opens a menu
+for choosing what to show and for managing Tags and Collections. See
 [docs/device-setup.md](docs/device-setup.md) and [docs/scene-format.md](docs/scene-format.md).

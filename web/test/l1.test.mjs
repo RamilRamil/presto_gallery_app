@@ -23,8 +23,8 @@ test('parseHexColor / toHexColor', () => {
 });
 
 test('cellSize and screenOffset', () => {
-  assert.deepEqual([16, 32, 64, 60, 240].map((g) => [cellSize(g), screenOffset(g)]),
-    [[15, 0], [7, 8], [3, 24], [4, 0], [1, 0]]);
+  assert.deepEqual([16, 32, 64, 60, 240, 480].map((g) => [cellSize(g), screenOffset(g)]),
+    [[30, 0], [15, 0], [7, 16], [8, 0], [2, 0], [1, 0]]);
 });
 
 test('centerSquareBox and fitInside', () => {

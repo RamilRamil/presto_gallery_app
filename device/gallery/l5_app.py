@@ -10,10 +10,12 @@ import asyncio
 from microdot import Microdot, Request, Response, send_file
 import pixel
 
+from .l3_gesture import TAP, gesture_command, is_long_press, press_end, press_move, press_start
 from .l3_playlist import (
-    allocate_collection_id, allocate_media_id, apply_command, collection_by_id, item_by_id,
-    slide_limit_ms, slide_plan, tag_counts, validate_settings,
+    allocate_collection_id, allocate_media_id, apply_command, collection_by_id, item_by_id, item_speed,
+    quiet_change, show_settings, slide_limit_ms, slide_plan, tag_counts, validate_settings,
 )
+from .l3_screen import SCREEN_SIZE, picture_margin, to_screen, to_ui
 from .l4_codecs import (
     HEADER_SIZE, MAX_SCENE_BYTES, MAX_UPLOAD_BYTES, bearer_token, catalog_from_json,
     catalog_to_json, frame_offset, parse_bin_header, password_matches, read_frame_duration,
@@ -28,7 +30,6 @@ from .model import KIND_SCENE, device_state, media_item, scene_item
 VERSION = "003-fullscreen-scenes"
 CHUNK = 4096
 SPACE_MARGIN = 64 * 1024
-LONG_PRESS_MS = 1000
 AUTH_RETRY_MS = 1000
 NOT_RESPONDING = "not responding: restarted before its first stop() call"
 FLASH_BASE = "/gallery"
@@ -156,8 +157,9 @@ def draw_message(presto, lines):
     display.set_pen(display.create_pen(8, 10, 20))
     display.clear()
     display.set_pen(display.create_pen(235, 235, 245))
+    s = to_screen(1)
     for i, line in enumerate(lines):
-        display.text(line, 10, 20 + i * 28, 220, 2)
+        display.text(line, 10 * s, (20 + i * 28) * s, 220 * s, 2 * s)
     presto.update()
 
 
@@ -172,6 +174,8 @@ class GalleryApp:
         self.wake = asyncio.Event()
         self.menu_requested = False
         self.menu_active = False
+        self.paused = False
+        self.redraw = None        # draws the current picture again; None during a Scene
         self.blitter = make_blitter(presto.display)
         password = config["password"]
         self.password = load_password() if password is None else password
@@ -191,6 +195,8 @@ class GalleryApp:
             settings = validate_settings({})
         self.state = apply_command(device_state(catalog, settings, [], 0),
                                    {"op": "setSettings", "settings": settings}, ticks_ms())
+        self.apply_brightness()
+        self.apply_leds()
         self.recover_stuck_scene()
 
     def path(self, name):
@@ -210,15 +216,37 @@ class GalleryApp:
         if media_id and item_by_id(self.state["catalog"], media_id) is not None:
             self.change({"op": "flag", "mediaId": media_id, "error": NOT_RESPONDING})
 
+    def apply_brightness(self):
+        self.presto.set_backlight(self.state["settings"]["brightness"] / 100)
+
+    def apply_leds(self):
+        """AmbientLeds: the firmware colours the LEDs from the screen edges on every update()."""
+        presto = self.presto
+        if not hasattr(presto, "auto_ambient_leds"):
+            return
+        on = self.state["settings"]["ambientLeds"]
+        presto.auto_ambient_leds(on)
+        if not on:  # turning auto off leaves the last colours lit
+            for i in range(getattr(presto, "NUM_LEDS", 7)):
+                presto.set_led_rgb(i, 0, 0, 0)
+
     def change(self, command):
-        """Apply a command, persist what changed, wake the player."""
-        new_state = apply_command(self.state, command, ticks_ms())
-        if new_state["catalog"] is not self.state["catalog"]:
+        """Apply a command, persist what changed, wake the player (not for Brightness or AmbientLeds:
+        nothing to redraw)."""
+        old, new_state = self.state, apply_command(self.state, command, ticks_ms())
+        if new_state["catalog"] is not old["catalog"]:
             save_atomic(self.path("catalog.json"), catalog_to_json(new_state["catalog"]))
-        if new_state["settings"] is not self.state["settings"]:
+        if new_state["settings"] is not old["settings"]:
             save_atomic(self.path("settings.json"), settings_to_json(new_state["settings"]))
         self.state = new_state
-        self.wake.set()
+        if new_state["settings"]["brightness"] != old["settings"]["brightness"]:
+            self.apply_brightness()
+        if new_state["settings"]["ambientLeds"] != old["settings"]["ambientLeds"]:
+            self.apply_leds()
+        quiet = command["op"] in ("setBrightness", "setSettings") and new_state["playlist"] is old["playlist"] \
+            and quiet_change(old["settings"], new_state["settings"])
+        if not quiet:
+            self.wake.set()
         return new_state
 
     def status(self):
@@ -252,31 +280,62 @@ class GalleryApp:
             header = parse_bin_header(head)
             pens = [display.create_pen(r, g, b) for r, g, b in read_palette(head, header)]
             draw = self.frame_drawer(pens, header)
-            frame = bytearray(header["frameSize"])
+            count, size = header["frameCount"], header["frameSize"]
             durations = []
-            for i in range(header["frameCount"]):
+            for i in range(count):
                 f.seek(frame_offset(header, i))
                 durations.append(read_frame_duration(f.read(2)))
             plan = slide_plan(durations, slide_seconds)
+            frames = None
+            if count > 1:
+                # A 480 frame takes most of a short GIF delay to read from the card, so read them once.
+                gc.collect()
+                try:
+                    frames = memoryview(bytearray(count * size))
+                except MemoryError:
+                    print("GIF frames read per frame: not enough memory")
+            if frames is not None:
+                for i in range(count):
+                    f.seek(frame_offset(header, i) + 2)
+                    f.readinto(frames[i * size:(i + 1) * size])
+            frame = bytearray(size) if frames is None else frames[0:size]
+
+            def show():
+                draw(frame)
+                if self.paused:
+                    self.draw_pause_mark()
+                self.presto.update()
+
+            self.redraw = show
             display.set_pen(display.create_pen(0, 0, 0))
             display.clear()
             for _ in range(plan["loops"]):
-                for i in range(header["frameCount"]):
+                for i in range(count):
                     started = ticks_ms()
-                    f.seek(frame_offset(header, i) + 2)
-                    f.readinto(frame)
-                    draw(frame)
-                    self.presto.update()
-                    wait = max(20, durations[i]) - ticks_diff(ticks_ms(), started) \
-                        if header["frameCount"] > 1 else 0
+                    if frames is None:
+                        f.seek(frame_offset(header, i) + 2)
+                        f.readinto(frame)
+                    else:
+                        frame = frames[i * size:(i + 1) * size]
+                    show()
+                    wait = max(20, durations[i]) - ticks_diff(ticks_ms(), started) if count > 1 else 0
                     if await self.sleep_or_wake(wait):
                         return True
             return await self.sleep_or_wake(plan["holdMs"])
 
+    def draw_pause_mark(self):
+        display = self.presto.display
+        display.set_pen(display.create_pen(0, 0, 0))
+        s = to_screen(1)
+        display.rectangle(208 * s, 8 * s, 24 * s, 24 * s)
+        display.set_pen(display.create_pen(240, 240, 245))
+        display.rectangle(213 * s, 13 * s, 5 * s, 14 * s)
+        display.rectangle(222 * s, 13 * s, 5 * s, 14 * s)
+
     def frame_drawer(self, pens, header):
         """Function drawing one frame of this item, by the fastest available method."""
         size, cell = header["width"], header["cellSize"]
-        offset = (240 - size * cell) // 2
+        offset = picture_margin(size)
         if self.blitter is None:
             display = self.presto.display
             return lambda frame: draw_frame(display, pens, frame, size, cell, offset)
@@ -292,9 +351,11 @@ class GalleryApp:
         display.clear()
         marker = self.path("scene.running")
         mark_running(marker, media_id)
-        stop = make_stop(self.wake, slide_limit_ms(playlist, slide_seconds),
-                         lambda: clear_running(marker))
-        error = run_scene(self.scene_path(media_id), stop)
+        limit = slide_limit_ms(playlist, slide_seconds, self.state["settings"]["showMode"])
+        stop = make_stop(self.wake, limit,
+                         lambda: clear_running(marker), lambda: self.paused)
+        speed = item_speed(item_by_id(self.state["catalog"], media_id))
+        error = run_scene(self.scene_path(media_id), stop, speed)
         clear_running(marker)
         if error:
             print("scene failed", media_id, error)
@@ -324,7 +385,7 @@ class GalleryApp:
                 await self.sleep_or_wake(60000)
                 continue
             media_id = playlist[state["index"]]
-            seconds = state["settings"]["slideSeconds"]
+            seconds = show_settings(state["catalog"], state["settings"])["slideSeconds"]
             try:
                 if item_by_id(state["catalog"], media_id)["kind"] == KIND_SCENE:
                     interrupted = await self.play_scene(media_id, playlist, seconds)
@@ -335,28 +396,47 @@ class GalleryApp:
                 print("cannot play", media_id, error)
                 self.broken.add(media_id)
                 interrupted = await self.sleep_or_wake(500)
+            self.redraw = None
             gc.collect()
-            if not interrupted and self.state is state:
-                self.state = apply_command(state, {"op": "next"}, ticks_ms())
+            current = self.state  # may differ from `state` by a Brightness change only
+            if not interrupted and not self.paused and current["playlist"] is playlist \
+                    and current["index"] == state["index"]:
+                self.state = apply_command(current, {"op": "next"}, ticks_ms())
+
+    def toggle_pause(self):
+        self.paused = not self.paused
+        if self.redraw is not None:
+            self.redraw()
+
+    def on_gesture(self, gesture):
+        if gesture == TAP:
+            self.toggle_pause()
+            return
+        command = gesture_command(gesture, self.state["settings"])
+        if command is not None:
+            self.change(command)
 
     async def touch_loop(self):
         touch = self.presto.touch
-        pressed_at = None
-        x = 0
+        press = None
+        pressed_at = 0
         while True:
             touch.poll()
             if self.menu_active or self.menu_requested:
-                pressed_at = None  # the menu reads the touch screen itself
+                press = None  # the menu reads the touch screen itself
             elif touch.state:
-                if pressed_at is None:
+                if press is None:
+                    press = press_start(to_ui(touch.x), to_ui(touch.y))
                     pressed_at = ticks_ms()
-                x = touch.x
-                if ticks_diff(ticks_ms(), pressed_at) >= LONG_PRESS_MS:
+                else:
+                    press = press_move(press, to_ui(touch.x), to_ui(touch.y),
+                                       ticks_diff(ticks_ms(), pressed_at))
+                if is_long_press(press):
                     self.menu_requested = True
                     self.wake.set()
-            elif pressed_at is not None:
-                pressed_at = None
-                self.change({"op": "next" if x >= 120 else "prev"})
+            elif press is not None:
+                self.on_gesture(press_end(press))
+                press = None
             await asyncio.sleep_ms(50) if hasattr(asyncio, "sleep_ms") else await asyncio.sleep(0.05)
 
     async def wifi_loop(self):
@@ -487,7 +567,7 @@ def build_server(app):
             return error_response(403, "set WEB_PASSWORD on the device to upload scenes")
         length = request.content_length or 0
         if length > MAX_SCENE_BYTES:
-            return error_response(400, "scene larger than 64 KB")
+            return error_response(400, "scene larger than 256 KB")
         info = storage_info(app.base, app.storage_kind)
         if info["total"] and length + SPACE_MARGIN > info["free"]:
             return error_response(507, "not enough storage")
@@ -528,7 +608,8 @@ def build_server(app):
         body = request.json or {}
         state = None
         edit = {"op": "editItem", "mediaId": media_id}
-        for key, field in (("name", "name"), ("tags", "tags"), ("collections", "collectionIds")):
+        for key, field in (("name", "name"), ("tags", "tags"), ("collections", "collectionIds"),
+                           ("speedPercent", "speedPercent")):
             if key in body:
                 edit[field] = body[key]
         if len(edit) > 2:  # one command: a bad value changes nothing, and flash is written once
@@ -609,9 +690,16 @@ def build_server(app):
         return error or (collection_by_id(state["catalog"], collection_id), 201)
 
     @server.patch("/api/collections/<collection_id>")
-    async def rename_collection(request, collection_id):
-        name = (request.json or {}).get("name", "")
-        state, error = run_command({"op": "renameCollection", "collectionId": collection_id, "name": name})
+    async def patch_collection(request, collection_id):
+        body = request.json or {}
+        show = dict((k, body[k]) for k in ("slideSeconds", "shuffle") if k in body)
+        if show:  # CollectionShowSettings; null clears a value
+            command = dict(show, op="setCollectionShow", collectionId=collection_id)
+        elif "speedPercent" in body:
+            command = {"op": "setCollectionSpeed", "collectionId": collection_id, "speedPercent": body["speedPercent"]}
+        else:
+            command = {"op": "renameCollection", "collectionId": collection_id, "name": body.get("name", "")}
+        state, error = run_command(command)
         return error or collection_by_id(state["catalog"], collection_id)
 
     @server.delete("/api/collections/<collection_id>")
@@ -655,4 +743,4 @@ def run(config=None):
     from presto import Presto
     merged = dict(DEFAULT_CONFIG)
     merged.update(config or {})
-    asyncio.run(main_async(Presto(ambient_light=False), merged))
+    asyncio.run(main_async(Presto(ambient_light=False, full_res=SCREEN_SIZE == 480), merged))

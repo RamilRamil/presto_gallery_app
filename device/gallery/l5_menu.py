@@ -2,10 +2,11 @@
 
 import asyncio
 
-from .l3_menu import glyph_rows, menu_open, menu_tap, menu_view, text_size
+from .l3_menu import glyph_rows, menu_open, menu_rejected, menu_tap, menu_timeout_ms, menu_view, text_size
+from .l3_playlist import allocate_collection_id
+from .l3_screen import to_screen, to_ui
 from .l5_clock import ticks_diff, ticks_ms
 
-MENU_TIMEOUT_MS = 20000
 LABEL_SCALE = 2
 NOTE_SCALE = 1
 
@@ -26,7 +27,8 @@ def draw_text(display, text, x, y, scale):
         x += 6 * scale
 
 
-def draw_menu(presto, view):
+def draw_menu(presto, view, scale=to_screen(1)):
+    """The view is laid out in UI units; every length is multiplied by scale on the screen."""
     display = presto.display
     background = display.create_pen(8, 10, 20)
     button = display.create_pen(38, 46, 78)
@@ -37,18 +39,21 @@ def draw_menu(presto, view):
     display.set_pen(background)
     display.clear()
     display.set_pen(white)
-    draw_text(display, view["title"], 4, 6, LABEL_SCALE)
+    draw_text(display, view["title"], 4 * scale, 6 * scale, LABEL_SCALE * scale)
     for cell in view["cells"]:
         display.set_pen(marked if cell["marked"] else button if cell["action"] else idle)
-        display.rectangle(cell["x"], cell["y"], cell["width"], cell["height"])
+        display.rectangle((cell["x"] + 1) * scale, cell["y"] * scale, (cell["width"] - 2) * scale,
+                          cell["height"] * scale)
         display.set_pen(white if cell["action"] or cell["marked"] or cell["info"] else grey)
         width, height = text_size(cell["label"], LABEL_SCALE)
         note = cell["note"]
         top = cell["y"] + (cell["height"] - height) // 2 - (5 if note else 0)
-        draw_text(display, cell["label"], cell["x"] + (cell["width"] - width) // 2, top, LABEL_SCALE)
+        draw_text(display, cell["label"], (cell["x"] + (cell["width"] - width) // 2) * scale, top * scale,
+                  LABEL_SCALE * scale)
         if note:
             width, _ = text_size(note, NOTE_SCALE)
-            draw_text(display, note, cell["x"] + (cell["width"] - width) // 2, top + height + 3, NOTE_SCALE)
+            draw_text(display, note, (cell["x"] + (cell["width"] - width) // 2) * scale,
+                      (top + height + 3) * scale, NOTE_SCALE * scale)
     presto.update()
 
 
@@ -60,11 +65,21 @@ async def wait_release(touch):
         await asyncio.sleep(0.02)
 
 
+def apply_menu_command(app, command, closing):
+    """A new Collection gets its id here; choosing what to show from the menu ends the Pause."""
+    if command["op"] == "createCollection":
+        command = dict(command, collectionId=allocate_collection_id(app.state["catalog"], ticks_ms()))
+    app.change(command)
+    if closing and command["op"] == "setSettings":
+        app.paused = False
+
+
 async def run_menu(app):
     """Show the menu until it is closed or left alone; settings go through app.change."""
     touch = app.presto.touch
     await wait_release(touch)
-    menu = menu_open(app.state["settings"])
+    playlist, index = app.state["playlist"], app.state["index"]
+    menu = menu_open(app.state["settings"], playlist[index] if playlist else None)
 
     def info():
         status = app.status()
@@ -78,14 +93,19 @@ async def run_menu(app):
     while menu is not None:
         touch.poll()
         if touch.state:
-            x, y = touch.x, touch.y
+            x, y = to_ui(touch.x), to_ui(touch.y)
             await wait_release(touch)
-            menu, settings = menu_tap(menu, x, y, app.state["catalog"], app.state["settings"], info())
-            if settings is not None:
-                app.change({"op": "setSettings", "settings": settings})
+            following, command = menu_tap(menu, x, y, app.state["catalog"], app.state["settings"], info())
+            if command is not None:
+                try:
+                    apply_menu_command(app, command, following is None)
+                except (ValueError, KeyError, OSError) as error:
+                    print("menu change refused:", error)
+                    following = menu_rejected(menu)
+            menu = following
             if menu is not None:
                 redraw()
             last_touch = ticks_ms()
-        elif ticks_diff(ticks_ms(), last_touch) >= MENU_TIMEOUT_MS:
+        elif ticks_diff(ticks_ms(), last_touch) >= menu_timeout_ms(menu):
             return
         await asyncio.sleep(0.03)

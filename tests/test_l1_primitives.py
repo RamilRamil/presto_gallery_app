@@ -26,7 +26,7 @@ def test_parse_hex_color():
             parse_hex_color(bad)
 
 
-@pytest.mark.parametrize("grid,cell,offset", [(16, 15, 0), (32, 7, 8), (64, 3, 24)])
+@pytest.mark.parametrize("grid,cell,offset", [(16, 30, 0), (32, 15, 0), (64, 7, 16), (480, 1, 0)])
 def test_cell_size_and_offset(grid, cell, offset):
     assert cell_size(grid) == cell
     assert screen_offset(grid) == offset

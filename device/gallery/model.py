@@ -4,6 +4,10 @@ SHOW_MODES = ("all", "images", "animations", "scenes", "collection", "tags")
 CATALOG_FORMAT_VERSION = 1
 KIND_PICTURE = "picture"
 KIND_SCENE = "scene"
+SPEED_PERCENTS = (25, 50, 100, 200, 400)
+DEFAULT_SPEED = 100
+SLIDE_MIN_SECONDS = 3
+SLIDE_MAX_SECONDS = 600
 
 
 def media_item(media_id, name, tags, frame_count, grid_size, byte_size, created_at,
@@ -29,7 +33,7 @@ def empty_catalog():
 
 def default_settings():
     return {"showMode": "all", "selectedTags": [], "selectedCollection": None, "slideSeconds": 10,
-            "shuffle": False}
+            "shuffle": False, "brightness": 100, "ambientLeds": True}
 
 
 def device_state(catalog, settings, playlist, index):

@@ -37,8 +37,31 @@ mpremote cp device/secrets.py :secrets.py
 2. Open the address on a phone or computer in the same network.
 3. In the Keenetic web interface (Home network → device list → Presto) you can make the IP
    permanent ("Permanent IP address"), so the address never changes.
-4. Tap right/left = next/previous. A long press (1 s) opens the menu: choose what to show, change
-   the slide time and shuffle; the address and free storage are under "Настройки".
+4. Gestures on the screen:
+
+   | Gesture | Action |
+   |---|---|
+   | Swipe left / right | next / previous |
+   | Tap | pause / continue |
+   | Hold still for 1 s | menu |
+   | Swipe up / down | brighter / darker |
+
+5. In the menu you choose what to show. "Ещё" leads to the Tags and Collections of the current
+   picture, to managing Collections and Tags with an on-screen keyboard, and to "Настройки"
+   (slide time, shuffle, the address and free storage). In the mode "Сцены" the slide time does not
+   apply: a Scene plays until you swipe, and "Настройки" says "сцены: по свайпу".
+6. A Collection can have its own slide time and order. In "Ещё" → "Изменить коллекции" → the
+   Collection → "Показ": "Своё время" on/off, "−"/"+" for the time, "Порядок" (как везде, по кругу,
+   вперемешку) and "Сцены" for the speed of its Scenes. Own values apply only while that Collection
+   is shown; "Настройки" marks the general value with "у коллекции свои" when it is overridden.
+   The browser shows and edits the same values with the "Показ" button of the Collection.
+7. The 7 LEDs on the back light the wall with the colours of the nearby screen edges, for pictures,
+   GIFs, Scenes and the menu alike. "Настройки" → "Подсветка: вкл / выкл" (or "Подсветка сзади" in
+   the browser settings) turns them off for everything; off means dark, and the choice survives a
+   restart. It does not depend on the screen brightness.
+
+The gallery runs the screen in full-resolution mode, 480×480. Pictures of every grid size fill it;
+grid 480 is one screen pixel per cell. The menu keeps its layout and is drawn twice as large.
 
 ## microSD
 
@@ -57,7 +80,7 @@ shows the progress. The copy on flash stays, and is what you see if the card is 
 .venv/bin/python device/sim/run_sim.py 8080
 ```
 
-Open http://localhost:8080. Data goes to `.sim-storage/gallery`, the emulated screen to
+Open http://localhost:8080. Data goes to `.sim-storage/gallery`, the emulated screen (480×480) to
 `.sim-storage/screen.png`. A second argument sets a password, which Scene upload needs. In the
 simulator the web server pauses while a Scene runs; the real device keeps serving.
 

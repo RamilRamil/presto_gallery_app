@@ -11,15 +11,20 @@ ALLOWED = {
     "l2_catalog": {"model", "l1_primitives"},
     "l3_playlist": {"model", "l1_primitives", "l2_catalog"},
     "l3_scene": set(),
-    "l3_menu": {"l1_font", "l2_catalog"},
+    "l3_screen": {"l1_primitives"},
+    "l3_gesture": {"l3_playlist"},
+    "l3_menu_cells": {"l1_font"},
+    "l3_keyboard": {"l3_menu_cells"},
+    "l3_menu_library": {"model", "l1_font", "l1_primitives", "l2_catalog", "l3_keyboard", "l3_menu_cells", "l3_scene"},
+    "l3_menu": {"l1_font", "l2_catalog", "l3_menu_cells", "l3_menu_library", "l3_playlist"},
     "l1_font": set(),
     "l4_codecs": {"model", "l1_primitives"},
     "l5_clock": set(),
-    "l5_blit": set(),
-    "l5_scene": {"l5_clock"},
-    "l5_menu": {"l3_menu", "l5_clock"},
+    "l5_blit": {"l3_screen"},
+    "l5_scene": {"model", "l3_scene", "l5_clock"},
+    "l5_menu": {"l3_menu", "l3_playlist", "l3_screen", "l5_clock"},
     "l5_sd": set(),
-    "l5_app": {"model", "l3_playlist", "l4_codecs", "l5_clock", "l5_scene", "l5_blit", "l5_menu", "l5_sd"},
+    "l5_app": {"model", "l3_gesture", "l3_playlist", "l3_screen", "l4_codecs", "l5_clock", "l5_scene", "l5_blit", "l5_menu", "l5_sd"},
 }
 IO_MODULES = {"os", "sys", "time", "network", "machine", "presto", "socket", "asyncio",
               "microdot", "random", "sdcard", "uos"}
@@ -57,4 +62,4 @@ def test_pure_layers_do_no_io(module):
 def test_pixel_module_calls_only_layer_3():
     tree = ast.parse((GALLERY.parent / "pixel.py").read_text())
     imports = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    assert imports == {"gallery.l3_scene"}
+    assert imports == {"gallery.l3_scene", "gallery.l3_screen"}

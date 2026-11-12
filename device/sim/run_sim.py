@@ -24,7 +24,7 @@ def main():
                   storageBase=str(STORAGE / "gallery"),
                   password=sys.argv[2] if len(sys.argv) > 2 else "")
     print(f"simulator on http://localhost:{port}/  screen: {presto.SCREEN_PATH}")
-    asyncio.run(l5_app.main_async(presto.Presto(), config))
+    asyncio.run(l5_app.main_async(presto.Presto(full_res=True), config))
 
 
 if __name__ == "__main__":

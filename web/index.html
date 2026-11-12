@@ -71,6 +71,7 @@
               <option value="80">80 × 80</option>
               <option value="120">120 × 120</option>
               <option value="240">240 × 240</option>
+              <option value="480">480 × 480, фото</option>
             </select>
             <span id="grid-hint"></span>
           </label>
@@ -127,11 +128,13 @@
           <label class="check"><input type="radio" name="showMode" value="tags"> По тегам</label>
         </fieldset>
         <select class="wide" id="mode-collection" aria-label="Коллекция" hidden></select>
+        <p class="wide muted" id="mode-own" hidden></p>
         <div class="chips wide" id="mode-tags"></div>
         <label>Секунд на слайд
           <input name="slideSeconds" type="number" min="3" max="600" value="10">
         </label>
         <label class="check"><input name="shuffle" type="checkbox"> Перемешать</label>
+        <label class="check"><input name="ambientLeds" type="checkbox" checked> Подсветка сзади</label>
       </form>
       <div class="actions">
         <button id="save-mode" type="button" class="primary">Сохранить</button>
@@ -208,6 +211,15 @@
         <input name="tags" type="text" list="tag-list">
       </label>
       <div class="chips wide" id="edit-tag-labels"></div>
+      <label class="wide" id="edit-speed-field" hidden>Скорость сцены (меняет паузы между кадрами)
+        <select name="speed">
+          <option value="25">0.25×</option>
+          <option value="50">0.5×</option>
+          <option value="100">1×</option>
+          <option value="200">2×</option>
+          <option value="400">4×</option>
+        </select>
+      </label>
       <div class="wide edit-group">
         <span class="muted">Коллекции</span>
         <div class="chips" id="edit-collections"></div>
@@ -216,6 +228,30 @@
         <button id="edit-save" type="submit" class="primary">Сохранить</button>
         <button id="edit-cancel" type="button">Отмена</button>
         <span id="edit-msg" class="muted" role="status"></span>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="show-dialog" class="edit-dialog">
+    <form id="show-form" class="fields">
+      <h2 class="wide" id="show-title">Показ коллекции</h2>
+      <label>Секунд на слайд
+        <input name="seconds" type="number" min="3" max="600" placeholder="как в настройках">
+      </label>
+      <label>Порядок
+        <select name="order">
+          <option value="general">как в настройках</option>
+          <option value="loop">по кругу</option>
+          <option value="shuffle">вперемешку</option>
+        </select>
+      </label>
+      <label class="wide" id="show-speed-field" hidden>Скорость сцен коллекции
+        <select name="speed"></select>
+      </label>
+      <p class="wide muted">Действует, пока показывается эта коллекция. Пустое поле: как в общих настройках.</p>
+      <div class="actions wide">
+        <button type="submit" class="primary">Сохранить</button>
+        <button id="show-cancel" type="button">Отмена</button>
+        <span id="show-msg" class="muted" role="status"></span>
       </div>
     </form>
   </dialog>

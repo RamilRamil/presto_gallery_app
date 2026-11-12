@@ -2,9 +2,9 @@
 # Same names as the old pixel.py, but bound to the app's Presto and stretched over the whole screen.
 
 from gallery.l3_scene import scene_rect
+from gallery.l3_screen import SCREEN_SIZE as SCREEN
 
 GRID = 32
-SCREEN = 240
 
 presto = None
 display = None

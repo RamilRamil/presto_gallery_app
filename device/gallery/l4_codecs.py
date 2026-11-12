@@ -10,8 +10,8 @@ MAGIC = b"PPXA"
 HEADER_FORMAT = "<4sBBHHHHBB"
 HEADER_SIZE = 16
 MAX_UPLOAD_BYTES = 1024 * 1024
-MAX_SCENE_BYTES = 64 * 1024
-GRID_SIZES = (16, 32, 40, 60, 64, 80, 120, 240)
+MAX_SCENE_BYTES = 256 * 1024
+GRID_SIZES = (16, 32, 40, 60, 64, 80, 120, 240, 480)
 
 
 def parse_bin_header(data):
@@ -64,7 +64,7 @@ def validate_upload(head, total_length):
 def validate_scene_source(data):
     """Scene upload bytes -> source text; raises ValueError. Syntax is checked by the caller."""
     if len(data) > MAX_SCENE_BYTES:
-        raise ValueError("scene larger than 64 KB")
+        raise ValueError("scene larger than 256 KB")
     try:
         text = data.decode("utf-8")
     except UnicodeError:

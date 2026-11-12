@@ -17,7 +17,7 @@ export const PRESET_PALETTES = { 'pico-8': PICO8_PALETTE };
 export const ADAPTIVE = 'adaptive';
 export const MAX_FRAMES = 256;
 export const MAX_BIN_BYTES = 1024 * 1024;
-export const MAX_SCENE_BYTES = 64 * 1024;
+export const MAX_SCENE_BYTES = 256 * 1024;
 export const RECOGNIZABLE_GRID = 120;
 const LARGEST_BIN_HEAD = 16 + 3 * 256;
 export const MIN_FRAME_MS = 20;
@@ -138,7 +138,7 @@ export function gridLimits(gridSize) {
 /** null when a Scene file of this size can be uploaded, otherwise a message. */
 export function checkSceneSize(byteLength) {
   if (byteLength === 0) return 'Файл пустой';
-  if (byteLength > MAX_SCENE_BYTES) return 'Файл больше 64 КБ';
+  if (byteLength > MAX_SCENE_BYTES) return 'Файл больше 256 КБ';
   return null;
 }
 

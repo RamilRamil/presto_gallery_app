@@ -1,15 +1,21 @@
 # LAYER 3 (calculations): Playlist, playback timing and the single entry for state changes.
 
-from .l1_primitives import clamp, lcg_next, new_media_id, normalize_tags
+from .l1_primitives import clamp, lcg_next, new_media_id, normalize_tag, normalize_tags
 from .l2_catalog import (
-    add_collection, add_item, add_tag_to_items, add_to_collection, all_tags, filter_by_mode,
-    find_collection, find_item, remove_collection, remove_from_collection, remove_item, remove_items,
-    rename_collection, rename_item, set_flag, set_item_collections, set_tags,
+    add_collection, add_item, add_tag_to_items, add_to_collection, all_tags, collection_show, filter_by_mode,
+    find_collection, find_item, item_speed, remove_collection, remove_from_collection, remove_item,
+    remove_items, remove_tag, rename_collection, rename_item, rename_tag, set_collection_show, set_collection_speed, set_flag,
+    set_item_collections, set_speed, set_tags,
 )
-from .model import SHOW_MODES, device_state
+from .model import SHOW_MODES, SLIDE_MAX_SECONDS, SLIDE_MIN_SECONDS, device_state
 
-SLIDE_MIN_SECONDS = 3
-SLIDE_MAX_SECONDS = 600
+BRIGHTNESS_LEVELS = (10, 25, 50, 75, 100)
+QUIET_KEYS = ("brightness", "ambientLeds")  # kept by setSettings when not sent; change nothing on the screen
+
+
+def quiet_change(old_settings, new_settings):
+    """True when the settings differ only in QUIET_KEYS: the Playlist and the item on screen stay."""
+    return all(old_settings[k] == new_settings[k] for k in old_settings if k not in QUIET_KEYS)
 
 
 def allocate_media_id(catalog, seed):
@@ -33,6 +39,22 @@ def allocate_collection_id(catalog, seed):
 
 
 
+def _known_brightness(value):
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError("brightness must be an integer")
+    best = BRIGHTNESS_LEVELS[0]
+    for level in BRIGHTNESS_LEVELS:
+        if abs(level - value) < abs(best - value):
+            best = level
+    return best
+
+
+def brightness_step(level, direction):
+    """The level one step up (direction 1) or down (-1); the ends stay where they are."""
+    index = BRIGHTNESS_LEVELS.index(_known_brightness(level)) + direction
+    return BRIGHTNESS_LEVELS[max(0, min(index, len(BRIGHTNESS_LEVELS) - 1))]
+
+
 def validate_settings(raw):
     mode = raw.get("showMode", "all")
     if mode not in SHOW_MODES:
@@ -43,12 +65,17 @@ def validate_settings(raw):
     selected_collection = raw.get("selectedCollection")
     if selected_collection is not None and not isinstance(selected_collection, str):
         raise ValueError("selectedCollection must be a collection id")
+    ambient_leds = raw.get("ambientLeds", True)
+    if not isinstance(ambient_leds, bool):
+        raise ValueError("ambientLeds must be true or false")
     return {
         "showMode": mode,
         "selectedTags": normalize_tags(raw.get("selectedTags", [])),
         "selectedCollection": selected_collection,
         "slideSeconds": clamp(seconds, SLIDE_MIN_SECONDS, SLIDE_MAX_SECONDS),
         "shuffle": bool(raw.get("shuffle", False)),
+        "brightness": _known_brightness(raw.get("brightness", BRIGHTNESS_LEVELS[-1])),
+        "ambientLeds": ambient_leds,
     }
 
 
@@ -63,11 +90,22 @@ def shuffled(values, seed):
     return out
 
 
+def show_settings(catalog, settings):
+    """The settings to play with: a Collection shown by its ShowMode may override slide time and order."""
+    if settings["showMode"] != "collection":
+        return settings
+    entry = find_collection(catalog, settings["selectedCollection"])
+    if entry is None:
+        return settings
+    own = dict((k, v) for k, v in collection_show(entry).items() if v is not None)
+    return dict(settings, **own) if own else settings
+
+
 def build_playlist(catalog, settings, seed):
     ids = [i["mediaId"] for i in
            filter_by_mode(catalog, settings["showMode"], settings["selectedTags"],
                           settings["selectedCollection"])]
-    return shuffled(ids, seed) if settings["shuffle"] else ids
+    return shuffled(ids, seed) if show_settings(catalog, settings)["shuffle"] else ids
 
 
 def next_index(playlist, index):
@@ -96,9 +134,10 @@ def slide_plan(frame_durations_ms, slide_seconds):
     return {"loops": max(1, -(-slide_ms // loop_ms)), "holdMs": 0}
 
 
-def slide_limit_ms(playlist, slide_seconds):
-    """How long a Scene may run; None when it is the only item, so it never restarts."""
-    return None if len(playlist) == 1 else slide_seconds * 1000
+def slide_limit_ms(playlist, slide_seconds, show_mode):
+    """How long a Scene may run; None when it is the only item, so it never restarts, and in the
+    ShowMode "scenes", where only a swipe moves to the next one."""
+    return None if len(playlist) == 1 or show_mode == "scenes" else slide_seconds * 1000
 
 
 def _known_collection(catalog, settings):
@@ -109,14 +148,26 @@ def _known_collection(catalog, settings):
     return settings
 
 
+def _retagged(settings, tag, replacement):
+    """Selected Tags follow a renamed or removed Tag; with none left there is nothing to select by."""
+    if tag not in settings["selectedTags"]:
+        return settings
+    tags = normalize_tags([t for t in settings["selectedTags"] if t != tag] + replacement)
+    show_mode = settings["showMode"] if tags or settings["showMode"] != "tags" else "all"
+    return dict(settings, selectedTags=tags, showMode=show_mode)
+
+
 def apply_command(state, command, seed):
     """Pure entry for every change; returns the new device state.
     command["op"]: upload(item) | rename(mediaId, name) | setTags(mediaId, tags) | remove(mediaId)
                    | setSettings(settings) | show(mediaId) | flag(mediaId, error) | unflag(mediaId)
-                   | createCollection(collectionId, name) | renameCollection(collectionId, name)
+                   | createCollection(collectionId, name, mediaIds?) | renameCollection(collectionId, name)
                    | deleteCollection(collectionId) | addToCollection(collectionId, mediaIds)
                    | removeFromCollection(collectionId, mediaId) | removeItems(mediaIds)
-                   | addTag(mediaIds, tag) | editItem(mediaId, name?, tags?, collectionIds?)
+                   | setCollectionSpeed(collectionId, speedPercent)
+                   | setCollectionShow(collectionId, slideSeconds?, shuffle?)  (None clears a value)
+                   | addTag(mediaIds, tag) | editItem(mediaId, name?, tags?, collectionIds?, speedPercent?)
+                   | renameTag(tag, newTag) | removeTag(tag) | setBrightness(level)
                    | next | prev
     upload also takes show (False: keep showing the current item) and collectionId."""
     catalog, settings = state["catalog"], state["settings"]
@@ -125,6 +176,11 @@ def apply_command(state, command, seed):
     if op in ("next", "prev"):
         step = next_index if op == "next" else prev_index
         return device_state(catalog, settings, playlist, step(playlist, index))
+    if op == "setBrightness":  # the slide order and the item on screen must not change
+        level = _known_brightness(command["level"])
+        if level == settings["brightness"]:
+            return state
+        return device_state(catalog, dict(settings, brightness=level), playlist, index)
     target = None
     if op == "upload":
         catalog = add_item(catalog, command["item"])
@@ -144,10 +200,18 @@ def apply_command(state, command, seed):
             catalog = set_tags(catalog, media_id, command["tags"])
         if "collectionIds" in command:
             catalog = set_item_collections(catalog, media_id, command["collectionIds"])
+        if "speedPercent" in command:
+            catalog = set_speed(catalog, media_id, command["speedPercent"])
     elif op == "remove":
         catalog = remove_item(catalog, command["mediaId"])
     elif op == "setSettings":
-        settings = _known_collection(catalog, validate_settings(command["settings"]))
+        raw = command["settings"]
+        for key in QUIET_KEYS:  # an older WebUi may not send them
+            if key not in raw:
+                raw = dict(raw, **{key: settings[key]})
+        settings = _known_collection(catalog, validate_settings(raw))
+        if quiet_change(state["settings"], settings):
+            return device_state(catalog, settings, playlist, index)
     elif op == "show":
         item = find_item(catalog, command["mediaId"])
         if item is None:
@@ -163,8 +227,16 @@ def apply_command(state, command, seed):
         catalog = remove_items(catalog, command["mediaIds"])
     elif op == "addTag":
         catalog = add_tag_to_items(catalog, command["mediaIds"], command["tag"])
+    elif op == "renameTag":
+        catalog = rename_tag(catalog, command["tag"], command["newTag"])
+        settings = _retagged(settings, command["tag"], [normalize_tag(command["newTag"])])
+    elif op == "removeTag":
+        catalog = remove_tag(catalog, command["tag"])
+        settings = _retagged(settings, command["tag"], [])
     elif op == "createCollection":
         catalog = add_collection(catalog, command["collectionId"], command["name"])
+        if command.get("mediaIds"):
+            catalog = add_to_collection(catalog, command["collectionId"], command["mediaIds"])
     elif op == "renameCollection":
         catalog = rename_collection(catalog, command["collectionId"], command["name"])
     elif op == "deleteCollection":
@@ -174,6 +246,11 @@ def apply_command(state, command, seed):
         catalog = add_to_collection(catalog, command["collectionId"], command["mediaIds"])
     elif op == "removeFromCollection":
         catalog = remove_from_collection(catalog, command["collectionId"], command["mediaId"])
+    elif op == "setCollectionSpeed":
+        catalog = set_collection_speed(catalog, command["collectionId"], command["speedPercent"])
+    elif op == "setCollectionShow":
+        changes = dict((k, command[k]) for k in ("slideSeconds", "shuffle") if k in command)
+        catalog = set_collection_show(catalog, command["collectionId"], changes)
     else:
         raise ValueError("unknown command " + op)
     new_playlist = build_playlist(catalog, settings, seed)

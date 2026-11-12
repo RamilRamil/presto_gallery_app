@@ -6,6 +6,7 @@ import {
   panCropView, parseTags, pixelizeFile, queueSummary, referenceEntry, removeFromQueue, resetEntry,
   retryFailed, setQueueEntry, toRelativeView, toggleTag, zoomCropView,
 } from './l3-pipeline.js';
+import { collectionShowSummary, ownShowNote, showForm, showPatch } from './l3-show.js';
 import { decodePrestoBin, encodePrestoBin, renderPixelArt } from './l4-encoders.js';
 import { api, setPassword } from './l5-api.js';
 
@@ -15,6 +16,7 @@ const CONVERT_DELAY_MS = 60;
 const SETTLE_DELAY_MS = 250;
 const PREVIEW_SIDE = 256;
 const WHEEL_SPEED = 0.002;
+const SPEED_PERCENTS = [25, 50, 100, 200, 400];
 const MODE_NAMES = {
   all: 'всё', images: 'картинки', animations: 'гифки', scenes: 'сцены', collection: 'коллекция', tags: 'по тегам',
 };
@@ -24,7 +26,7 @@ const ui = {
   file: null, fileBytes: null, fileImage: null, art: null, artProblem: false, locked: false,
   source: null, sourceCanvas: null, view: null, pointers: new Map(),
   queue: [], shared: null, activeId: null, uploading: false, cancelRequested: false, passwordSet: true,
-  editing: null,
+  editing: null, showing: null,
   collections: [], selected: new Set(), visibleIds: [],
   convertTimer: null, previewPlayer: null, items: [], tags: [], settings: null, thumbs: new Map(),
 };
@@ -542,6 +544,7 @@ function renderModeForm() {
   form.showMode.value = settings.showMode;
   form.slideSeconds.value = settings.slideSeconds;
   form.shuffle.checked = settings.shuffle;
+  form.ambientLeds.checked = settings.ambientLeds !== false;
   const selected = new Set(settings.selectedTags);
   const box = $('#mode-tags');
   box.hidden = settings.showMode !== 'tags';
@@ -549,6 +552,7 @@ function renderModeForm() {
   collectionSelect.hidden = settings.showMode !== 'collection';
   collectionSelect.replaceChildren(...ui.collections.map((c) => new Option(`${c.name} (${c.mediaIds.length})`, c.collectionId)));
   if (settings.selectedCollection) collectionSelect.value = settings.selectedCollection;
+  renderModeOwn();
   box.replaceChildren(...(ui.tags.length ? ui.tags.map(({ label, count }) => {
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -560,6 +564,13 @@ function renderModeForm() {
   }) : [Object.assign(document.createElement('span'), { className: 'muted', textContent: 'Тегов пока нет' })]));
 }
 
+function renderModeOwn() {
+  const note = $('#mode-own');
+  const collection = ui.collections.find((c) => c.collectionId === $('#mode-collection').value);
+  note.textContent = collection ? ownShowNote(collection) : '';
+  note.hidden = $('#mode-form').showMode.value !== 'collection' || !note.textContent;
+}
+
 function modeFormValue() {
   const form = $('#mode-form');
   return {
@@ -568,6 +579,7 @@ function modeFormValue() {
     selectedCollection: $('#mode-collection').value || null,
     slideSeconds: Math.round(Number(form.slideSeconds.value) || 10),
     shuffle: form.shuffle.checked,
+    ambientLeds: form.ambientLeds.checked,
   };
 }
 
@@ -630,7 +642,8 @@ function renderLibrary(brokenIds = []) {
     node.querySelector('.name').textContent = item.name;
     const size = `${(item.byteSize / 1024).toFixed(1)} КБ`;
     node.querySelector('.kind').textContent = isScene
-      ? `сцена · ${size}${item.flagged ? ` · отключена: ${item.error}` : ''}`
+      ? `сцена${item.speedPercent && item.speedPercent !== 100 ? ` · ${item.speedPercent / 100}×` : ''} · ${size}`
+        + `${item.flagged ? ` · отключена: ${item.error}` : ''}`
       : `${item.gridSize}×${item.gridSize} · `
         + `${item.frameCount > 1 ? `гифка, ${item.frameCount} кадров` : 'картинка'} · ${size}`;
     node.querySelector('.tags').replaceChildren(...item.tags.map((t) =>
@@ -756,19 +769,68 @@ function renderCollections() {
   list.replaceChildren(...ui.collections.map((collection) => {
     const row = document.createElement('li');
     row.className = 'collection-row';
+    const summary = collectionShowSummary(collection);
     const name = Object.assign(document.createElement('span'), {
-      textContent: `${collection.name} · ${collection.mediaIds.length}`,
+      textContent: `${collection.name} · ${collection.mediaIds.length}${summary ? ` · ${summary}` : ''}`,
     });
+    const show = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Показ' });
+    show.addEventListener('click', () => openShowDialog(collection));
     const rename = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Переименовать' });
     rename.addEventListener('click', () => renameCollection(collection));
     const remove = Object.assign(document.createElement('button'), {
       type: 'button', textContent: 'Удалить', className: 'danger',
     });
     remove.addEventListener('click', () => deleteCollection(collection));
-    row.append(name, rename, remove);
+    row.append(name, show, rename, remove);
     return row;
   }));
   $('#collections-empty').hidden = ui.collections.length > 0;
+}
+
+function collectionSpeeds(collection) {
+  const scenes = ui.items.filter((item) => item.kind === 'scene' && collection.mediaIds.includes(item.mediaId));
+  return new Set(scenes.map((scene) => (SPEED_PERCENTS.includes(scene.speedPercent) ? scene.speedPercent : 100)));
+}
+
+function openShowDialog(collection) {
+  ui.showing = collection;
+  const form = $('#show-form');
+  const values = showForm(collection);
+  $('#show-title').textContent = `Показ: ${collection.name}`;
+  form.seconds.value = values.seconds;
+  form.seconds.placeholder = `как в настройках (${ui.settings ? ui.settings.slideSeconds : 10})`;
+  form.order.value = values.order;
+  const speeds = collectionSpeeds(collection);
+  const mixed = speeds.size > 1;
+  $('#show-speed-field').hidden = speeds.size === 0;
+  form.speed.replaceChildren(
+    ...(mixed ? [Object.assign(new Option('разная', ''), { disabled: true })] : []),
+    ...SPEED_PERCENTS.map((percent) => new Option(`${percent / 100}×`, String(percent))),
+  );
+  form.speed.value = speeds.size === 1 ? String([...speeds][0]) : '';
+  form.speed.dataset.shown = form.speed.value;
+  $('#show-msg').textContent = '';
+  $('#show-dialog').showModal();
+}
+
+async function saveShowDialog() {
+  const collection = ui.showing;
+  const form = $('#show-form');
+  const speedChanged = !$('#show-speed-field').hidden && form.speed.value && form.speed.value !== form.speed.dataset.shown;
+  const percent = Number(form.speed.value);
+  if (speedChanged && form.speed.dataset.shown === ''
+      && !confirm(`У сцен коллекции «${collection.name}» разная скорость. Поставить всем ${percent / 100}×?`)) {
+    return;
+  }
+  try {
+    await api.setCollectionShow(collection.collectionId, showPatch({ seconds: form.seconds.value, order: form.order.value }));
+    if (speedChanged) await api.setCollectionSpeed(collection.collectionId, percent);
+    $('#show-dialog').close();
+    await refreshAll();
+  } catch (error) {
+    if (error.status === 401) lock();
+    else $('#show-msg').textContent = `Ошибка: ${error.message}`;
+  }
 }
 
 async function createCollection() {
@@ -831,6 +893,9 @@ function editItem(item) {
   ui.editing = item;
   form.name.value = item.name;
   form.tags.value = item.tags.join(', ');
+  $('#edit-speed-field').hidden = item.kind !== 'scene';
+  form.speed.value = String(item.speedPercent ?? 100);
+  if (!form.speed.value) form.speed.value = '100';
   $('#edit-msg').textContent = '';
   renderEditTags();
   renderEditCollections(item);
@@ -847,6 +912,7 @@ async function saveEdit() {
       name: form.name.value.trim() || item.name,
       tags: parseTags(form.tags.value),
       collections: [...$('#edit-collections').querySelectorAll('.chip.on')].map((chip) => chip.dataset.id),
+      ...(item.kind === 'scene' ? { speedPercent: Number(form.speed.value) } : {}),
     });
     $('#edit-dialog').close();
     await refreshAll();
@@ -884,6 +950,7 @@ function lock() {
   ui.locked = true;
   setPassword(null);
   $('#edit-dialog').close();
+  $('#show-dialog').close();
   libraryPlayers.forEach((p) => p.stop());
   libraryPlayers = [];
   ui.thumbs.clear();
@@ -993,6 +1060,8 @@ function init() {
   $('#edit-form').addEventListener('submit', (e) => { e.preventDefault(); saveEdit(); });
   $('#edit-form').tags.addEventListener('input', renderEditTags);
   $('#edit-cancel').addEventListener('click', () => $('#edit-dialog').close());
+  $('#show-cancel').addEventListener('click', () => $('#show-dialog').close());
+  $('#show-form').addEventListener('submit', (e) => { e.preventDefault(); saveShowDialog(); });
   const preview = $('#preview');
   preview.addEventListener('pointerdown', onPreviewPointerDown);
   preview.addEventListener('pointermove', onPreviewPointerMove);
@@ -1020,6 +1089,7 @@ function init() {
       $('#mode-tags').hidden = e.target.value !== 'tags';
       $('#mode-collection').hidden = e.target.value !== 'collection';
     }
+    renderModeOwn();
   });
   $('#save-mode').addEventListener('click', saveMode);
   $('#lib-filter').addEventListener('change', () => refreshStatus().then((s) => renderLibrary(s ? s.brokenIds : [])));

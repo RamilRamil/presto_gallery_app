@@ -31,7 +31,7 @@ def test_block_fills_the_whole_screen():
     for y in range(pixel.GRID):
         for x in range(pixel.GRID):
             pixel.pix(x, y, pixel.make_pen(1, 2, 3))
-    assert len(presto.display.covered) == 240 * 240
+    assert len(presto.display.covered) == 480 * 480
 
 
 def run_source(tmp_path, source, stop):

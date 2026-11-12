@@ -3,7 +3,7 @@
 
 import micropython
 
-SCREEN = 240
+from .l3_screen import SCREEN_SIZE as SCREEN
 
 
 def layout(size, cell, offset):

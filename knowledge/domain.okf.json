@@ -68,14 +68,14 @@
       "properties": {
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240",
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240 | 480",
           "qualifiers": {
             "default": 32
           }
         },
         "cellSize": {
           "@type": "Integer",
-          "value": "floor(screenSize / gridSize): 15, 7, 6, 4, 3, 3, 2 or 1 px"
+          "value": "floor(screenSize / gridSize): 30, 15, 12, 8, 7, 6, 4, 2 or 1 px"
         }
       }
     },
@@ -83,11 +83,11 @@
       "@id": "presto-screen",
       "@type": "DeviceEntity",
       "name": "PrestoScreen",
-      "description": "Pimoroni Presto display in normal mode.",
+      "description": "Pimoroni Presto display in full-resolution mode: every one of the 480x480 panel pixels is drawn.",
       "properties": {
         "screenSize": {
           "@type": "Integer",
-          "value": 240
+          "value": 480
         }
       }
     },
@@ -160,7 +160,7 @@
       "properties": {
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240"
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240 | 480"
         },
         "colorCount": {
           "@type": "Integer",
@@ -345,7 +345,7 @@
         },
         "gridSize": {
           "@type": "Integer",
-          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240, 0 for a Scene"
+          "value": "16 | 32 | 40 | 60 | 64 | 80 | 120 | 240 | 480, 0 for a Scene"
         },
         "byteSize": {
           "@type": "Integer",
@@ -397,7 +397,7 @@
       "@id": "show-mode",
       "@type": "EnumEntity",
       "name": "ShowMode",
-      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), scenes, collection (one Collection), tags (any of selected).",
+      "description": "Which MediaItems are shown: all, images (one frame), animations (many frames), scenes, collection (one Collection), tags (any of selected). In scenes the slideSeconds of DeviceSettings does not apply: a Scene plays until a swipe or a change.",
       "properties": {
         "values": {
           "@type": "Text",
@@ -412,7 +412,7 @@
       "@id": "device-settings",
       "@type": "DataEntity",
       "name": "DeviceSettings",
-      "description": "Persisted playback settings on the device.",
+      "description": "Persisted playback settings on the device. Its slideSeconds and shuffle are the general values; a Collection shown by ShowMode 'collection' may override them with CollectionShowSettings.",
       "properties": {
         "showMode": {
           "@type": "Text",
@@ -439,6 +439,17 @@
         "selectedCollection": {
           "@type": "Text",
           "value": "collectionId or null"
+        },
+        "brightness": {
+          "@type": "Integer",
+          "value": "Brightness in percent"
+        },
+        "ambientLeds": {
+          "@type": "Boolean",
+          "value": "true | false",
+          "qualifiers": {
+            "default": true
+          }
         }
       }
     },
@@ -516,7 +527,27 @@
         },
         "maxBytes": {
           "@type": "Integer",
-          "value": 65536
+          "value": 262144
+        }
+      }
+    },
+    {
+      "@id": "scene-speed",
+      "@type": "SettingEntity",
+      "name": "SceneSpeed",
+      "description": "How fast a Scene plays relative to its own pauses, stored per Scene in whole percent. Pauses are divided by it; the Scene file does not change.",
+      "properties": {
+        "settingName": {
+          "@type": "Text",
+          "value": "speedPercent"
+        },
+        "allowedValues": {
+          "@type": "Text",
+          "value": "25, 50, 100, 200, 400"
+        },
+        "defaultValue": {
+          "@type": "Integer",
+          "value": 100
         }
       }
     },
@@ -556,7 +587,7 @@
       "@id": "collection",
       "@type": "DataEntity",
       "name": "Collection",
-      "description": "Named, ordered set of MediaItems put together by hand; items can have different Tags and belong to several Collections.",
+      "description": "Named, ordered set of MediaItems put together by hand; items can have different Tags and belong to several Collections. It may have its own CollectionShowSettings. It stores no SceneSpeed of its own but can set the SceneSpeed of all the Scenes it has at that moment.",
       "properties": {
         "collectionId": {
           "@type": "Text",
@@ -569,6 +600,34 @@
         "mediaIds": {
           "@type": "List",
           "value": "mediaId in the order added"
+        },
+        "slideSeconds": {
+          "@type": "Integer",
+          "value": "3..600, optional: CollectionShowSettings"
+        },
+        "shuffle": {
+          "@type": "Boolean",
+          "value": "optional: CollectionShowSettings"
+        }
+      }
+    },
+    {
+      "@id": "collection-show-settings",
+      "@type": "SettingEntity",
+      "name": "CollectionShowSettings",
+      "description": "Optional own slide time and order of one Collection, stored in the Collection. They apply only while ShowMode is 'collection' with that Collection; a missing value means the general DeviceSettings value.",
+      "properties": {
+        "settingName": {
+          "@type": "Text",
+          "value": "slideSeconds, shuffle"
+        },
+        "allowedValues": {
+          "@type": "Text",
+          "value": "slideSeconds 3..600 or absent; shuffle true | false or absent"
+        },
+        "defaultValue": {
+          "@type": "Text",
+          "value": "absent (as in DeviceSettings)"
         }
       }
     },
@@ -596,7 +655,47 @@
       "@id": "device-menu",
       "@type": "ProcessEntity",
       "name": "DeviceMenu",
-      "description": "Touch menu on the Presto, opened by a long press, for choosing what to show.",
+      "description": "Touch menu on the Presto, opened by a long press, for choosing what to show and for managing the current item, Collections (including their CollectionShowSettings) and Tags. Its 'Настройки' screen switches AmbientLeds.",
+      "properties": {}
+    },
+    {
+      "@id": "gesture",
+      "@type": "ProcessEntity",
+      "name": "Gesture",
+      "description": "One finger movement on the Presto, classified as a tap, a long press or a swipe in one of four directions.",
+      "properties": {}
+    },
+    {
+      "@id": "brightness",
+      "@type": "DataEntity",
+      "name": "Brightness",
+      "description": "Screen level on the device in percent, one of 10, 25, 50, 75, 100; part of DeviceSettings.",
+      "properties": {}
+    },
+    {
+      "@id": "ambient-leds",
+      "@type": "DataEntity",
+      "name": "AmbientLeds",
+      "description": "The 7 RGB LEDs on the back of the Presto. While DeviceSettings.ambientLeds is true, the firmware gives each LED the colour of the screen edge next to it on every screen update (pictures, GIFs, Scenes, the menu); when false, all LEDs are dark. One general setting; not changed by Collections; independent of Brightness.",
+      "properties": {
+        "ledCount": {
+          "@type": "Integer",
+          "value": "7"
+        }
+      }
+    },
+    {
+      "@id": "pause",
+      "@type": "ProcessEntity",
+      "name": "Pause",
+      "description": "Temporary state in which the slideshow stays on the current item; animations keep playing; never stored.",
+      "properties": {}
+    },
+    {
+      "@id": "on-screen-keyboard",
+      "@type": "ProcessEntity",
+      "name": "OnScreenKeyboard",
+      "description": "Pages of keys for entering a Collection or Tag name on the Presto.",
       "properties": {}
     }
   ],
@@ -921,6 +1020,36 @@
       "@type": "DisplayedOn",
       "source": "device-menu",
       "target": "presto-screen"
+    },
+    {
+      "@type": "HasPart",
+      "source": "device-settings",
+      "target": "brightness"
+    },
+    {
+      "@type": "HasPart",
+      "source": "device-menu",
+      "target": "on-screen-keyboard"
+    },
+    {
+      "@type": "HasPart",
+      "source": "scene",
+      "target": "scene-speed"
+    },
+    {
+      "@type": "HasPart",
+      "source": "collection",
+      "target": "collection-show-settings"
+    },
+    {
+      "@type": "Overrides",
+      "source": "collection-show-settings",
+      "target": "device-settings"
+    },
+    {
+      "@type": "HasProperty",
+      "source": "device-settings",
+      "target": "ambient-leds"
     }
   ]
 }

@@ -1,4 +1,16 @@
-# LAYER 3 (calculations): where a Scene's grid cells land on the screen.
+# LAYER 3 (calculations): where a Scene's grid cells land on the screen, and its pace.
+
+
+def paced_ms(ms, percent):
+    """Length of a pause of `ms` at this SceneSpeed."""
+    return ms * 100 / percent
+
+
+def speed_label(percent):
+    """Menu text of a SceneSpeed, in characters the device font has."""
+    if percent % 100 == 0:
+        return "%dx" % (percent // 100)
+    return ("%.2f" % (percent / 100)).rstrip("0") + "x"
 
 
 def scene_rect(x, y, width, height, grid, screen):

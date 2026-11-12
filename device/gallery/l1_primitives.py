@@ -1,6 +1,8 @@
 # LAYER 1 (calculations): small pure helpers.
 
-PRESTO_SCREEN_SIZE = 240
+PRESTO_SCREEN_SIZE = 480
+UI_SIZE = 240            # the DeviceMenu and Gestures are laid out in these units
+UI_SCALE = PRESTO_SCREEN_SIZE // UI_SIZE
 TAG_MAX_LENGTH = 24
 NAME_MAX_LENGTH = 64
 _FORBIDDEN = ",/\\\"<>"

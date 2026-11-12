@@ -19,7 +19,7 @@ def test_bin_layout_byte_by_byte():
     assert data[0:4] == b"PPXA"
     assert data[4] == 1 and data[5] == 0
     assert struct.unpack_from("<HHHH", data, 6) == (2, 2, 2, 1)
-    assert data[14] == 120 and data[15] == 0  # cellSize = 240 // 2
+    assert data[14] == 240 and data[15] == 0  # cellSize = 480 // 2
     assert data[16:22] == bytes([1, 2, 3, 250, 251, 252])
     assert data[22:24] == b"\x00\x00"
     assert data[24:] == bytes([0, 1, 1, 0])

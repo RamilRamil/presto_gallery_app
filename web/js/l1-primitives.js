@@ -1,8 +1,8 @@
 // LAYER 1 (calculations): color and size primitives. Port of src/presto_pic_loader/l1_primitives.py.
 // RgbColor is a [red, green, blue] array of 0..255 integers.
 
-export const PRESTO_SCREEN_SIZE = 240;
-export const GRID_SIZES = [16, 32, 40, 60, 64, 80, 120, 240];
+export const PRESTO_SCREEN_SIZE = 480;
+export const GRID_SIZES = [16, 32, 40, 60, 64, 80, 120, 240, 480];
 
 export const PICO8_PALETTE = Object.freeze([
   '000000', '1D2B53', '7E2553', '008751', 'AB5236', '5F574F', 'C2C3C7', 'FFF1E8',

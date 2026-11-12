@@ -24,7 +24,7 @@ test('makeSettings defaults and validation', () => {
 
 test('encodePrestoBin byte layout', () => {
   const data = encodePrestoBin(ART);
-  assert.deepEqual([...data.subarray(0, 16)], [0x50, 0x50, 0x58, 0x41, 1, 0, 2, 0, 2, 0, 2, 0, 1, 0, 120, 0]);
+  assert.deepEqual([...data.subarray(0, 16)], [0x50, 0x50, 0x58, 0x41, 1, 0, 2, 0, 2, 0, 2, 0, 1, 0, 240, 0]);
   assert.deepEqual([...data.subarray(16)], [1, 2, 3, 250, 251, 252, 0, 0, 0, 1, 1, 0]);
   assert.equal(binByteSize(ART), data.length);
 });

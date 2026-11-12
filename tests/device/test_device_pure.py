@@ -53,7 +53,7 @@ def test_new_media_id_unique_and_hex():
 
 def test_geometry():
     assert [(l1.cell_size(g), l1.screen_offset(g)) for g in (16, 32, 64)] == \
-        [(15, 0), (7, 8), (3, 24)]
+        [(30, 0), (15, 0), (7, 16)]
 
 
 # --- layer 2 ---
@@ -93,7 +93,8 @@ def test_all_tags_and_filter_by_mode():
 def test_validate_settings():
     s = l3.validate_settings({"showMode": "tags", "selectedTags": ["Cats"], "slideSeconds": 1})
     assert s == {"showMode": "tags", "selectedTags": ["cats"], "selectedCollection": None,
-                 "slideSeconds": 3, "shuffle": False}
+                 "slideSeconds": 3, "shuffle": False, "brightness": 100,
+                 "ambientLeds": True}
     for bad in ({"showMode": "x"}, {"slideSeconds": "10"}, {"slideSeconds": True}):
         with pytest.raises(ValueError):
             l3.validate_settings(bad)
@@ -149,7 +150,7 @@ def test_apply_command_flow():
 
 def make_bin(grid=16, palette=2, frames=1):
     header = struct.pack("<4sBBHHHHBB", b"PPXA", 1, 1 if frames > 1 else 0, grid, grid,
-                         palette, frames, 240 // grid, 0)
+                         palette, frames, 480 // grid, 0)
     body = bytes(range(3 * palette)) + b"".join(
         struct.pack("<H", 100 * (i + 1)) + bytes(grid * grid) for i in range(frames))
     return header + body
@@ -158,7 +159,7 @@ def make_bin(grid=16, palette=2, frames=1):
 def test_parse_bin_header_and_offsets():
     data = make_bin(16, 2, 3)
     header = l4.parse_bin_header(data)
-    assert header["frameCount"] == 3 and header["cellSize"] == 15
+    assert header["frameCount"] == 3 and header["cellSize"] == 30
     assert header["totalSize"] == len(data)
     assert l4.frame_offset(header, 1) == 16 + 6 + 258
     assert l4.read_palette(data, header) == [(0, 1, 2), (3, 4, 5)]
@@ -211,14 +212,14 @@ def test_allocate_media_id_and_tag_counts():
 
 # --- full-screen grids and Scenes ---
 
-@pytest.mark.parametrize("grid,cell", [(40, 6), (60, 4), (80, 3), (120, 2), (240, 1)])
+@pytest.mark.parametrize("grid,cell", [(16, 30), (32, 15), (40, 12), (60, 8), (80, 6), (120, 4), (240, 2), (480, 1)])
 def test_full_screen_grids(grid, cell):
     assert (l1.cell_size(grid), l1.screen_offset(grid)) == (cell, 0)
     data = make_bin(grid)
     assert l4.validate_upload(data[:64], len(data))["frameSize"] == grid * grid
 
 
-@pytest.mark.parametrize("grid", [17, 100, 480])
+@pytest.mark.parametrize("grid", [17, 100, 960])
 def test_unknown_grid_rejected(grid):
     with pytest.raises(ValueError):
         l4.parse_bin_header(make_bin(grid))
@@ -280,8 +281,14 @@ def test_flag_of_the_last_item_empties_playlist():
 
 
 def test_slide_limit():
-    assert l3.slide_limit_ms(["a"], 10) is None
-    assert l3.slide_limit_ms(["a", "b"], 10) == 10000
+    assert l3.slide_limit_ms(["a"], 10, "all") is None
+    for mode in ("all", "animations", "collection", "tags"):
+        assert l3.slide_limit_ms(["a", "b"], 10, mode) == 10000
+
+
+def test_scenes_show_mode_advances_only_on_a_swipe():
+    assert l3.slide_limit_ms(["a", "b", "c"], 10, "scenes") is None
+    assert l3.slide_limit_ms(["a"], 10, "scenes") is None
 
 
 def test_scenes_show_mode_is_valid():
@@ -292,7 +299,7 @@ def test_validate_scene_source():
     source = "import time\n\ndef run(stop):\n    pass\n"
     assert l4.validate_scene_source(source.encode()) == source
     for bad in (b"def helper():\n    pass\n", b"    def run(stop):\n", b"\xff\xfe def run(\n",
-                b"def run(stop):\n" + b"#" * (64 * 1024)):
+                b"def run(stop):\n" + b"#" * (256 * 1024)):
         with pytest.raises(ValueError):
             l4.validate_scene_source(bad)
 
@@ -374,3 +381,86 @@ def test_edit_item_with_unknown_collection_is_refused_as_a_whole():
     with pytest.raises(KeyError):
         l3.apply_command(state, {"op": "editItem", "mediaId": "a", "name": "new", "collectionIds": ["nope"]}, 1)
     assert l2.find_item(state["catalog"], "a")["name"] == "pic"
+
+
+# --- Brightness and Tag management ---
+
+def test_brightness_steps_and_stops_at_the_ends():
+    assert l3.brightness_step(50, 1) == 75 and l3.brightness_step(50, -1) == 25
+    assert l3.brightness_step(100, 1) == 100 and l3.brightness_step(10, -1) == 10
+
+
+def test_brightness_is_validated_and_snapped():
+    assert l3.validate_settings({})["brightness"] == 100
+    assert l3.validate_settings({"brightness": 60})["brightness"] == 50
+    assert l3.validate_settings({"brightness": 0})["brightness"] == 10
+    with pytest.raises(ValueError):
+        l3.validate_settings({"brightness": "max"})
+    with pytest.raises(ValueError):
+        l3.validate_settings({"brightness": True})
+
+
+def test_old_settings_file_gets_full_brightness():
+    assert l4.settings_from_json('{"slideSeconds": 30}')["brightness"] == 100
+
+
+def test_set_brightness_keeps_the_slide_order_and_position():
+    settings = dict(default_settings(), shuffle=True)
+    state = device_state(catalog_of(item("a"), item("b"), item("c")), settings, ["c", "a", "b"], 2)
+    changed = l3.apply_command(state, {"op": "setBrightness", "level": 25}, 99)
+    assert changed["settings"]["brightness"] == 25
+    assert changed["playlist"] is state["playlist"] and changed["index"] == 2
+    assert l3.apply_command(changed, {"op": "setBrightness", "level": 25}, 100) is changed
+
+
+def test_saving_settings_without_brightness_keeps_it():
+    state = device_state(empty_catalog(), dict(default_settings(), brightness=25), [], 0)
+    state = l3.apply_command(state, {"op": "setSettings", "settings": {"slideSeconds": 30}}, 1)
+    assert state["settings"]["brightness"] == 25 and state["settings"]["slideSeconds"] == 30
+
+
+def tagged():
+    return catalog_of(item("a", tags=["cat", "dog"]), item("b", tags=["cat"]), item("c", tags=["dog"]))
+
+
+def tags_of(catalog):
+    return {i["mediaId"]: i["tags"] for i in catalog["items"]}
+
+
+def test_rename_tag_everywhere_and_merge():
+    assert tags_of(l2.rename_tag(tagged(), "cat", " Кот "))["b"] == ["кот"]
+    assert tags_of(l2.rename_tag(tagged(), "cat", "dog")) == {"a": ["dog"], "b": ["dog"], "c": ["dog"]}
+    with pytest.raises(ValueError):
+        l2.rename_tag(tagged(), "cat", "")
+    with pytest.raises(KeyError):
+        l2.rename_tag(tagged(), "gone", "x")
+
+
+def test_remove_tag_keeps_items():
+    catalog = l2.remove_tag(tagged(), "cat")
+    assert tags_of(catalog) == {"a": ["dog"], "b": [], "c": ["dog"]}
+    with pytest.raises(KeyError):
+        l2.remove_tag(catalog, "cat")
+
+
+def tag_state(selected):
+    settings = dict(default_settings(), showMode="tags", selectedTags=selected)
+    return device_state(tagged(), settings, l3.build_playlist(tagged(), settings, 1), 0)
+
+
+def test_selected_tags_follow_a_rename():
+    state = l3.apply_command(tag_state(["cat"]), {"op": "renameTag", "tag": "cat", "newTag": "Кот"}, 1)
+    assert state["settings"]["selectedTags"] == ["кот"] and sorted(state["playlist"]) == ["a", "b"]
+
+
+def test_removing_the_last_selected_tag_shows_everything():
+    state = l3.apply_command(tag_state(["cat"]), {"op": "removeTag", "tag": "cat"}, 1)
+    assert state["settings"]["showMode"] == "all" and len(state["playlist"]) == 3
+    state = l3.apply_command(tag_state(["cat", "dog"]), {"op": "removeTag", "tag": "cat"}, 1)
+    assert state["settings"]["showMode"] == "tags" and state["settings"]["selectedTags"] == ["dog"]
+
+
+def test_create_collection_with_items_at_once():
+    state = device_state(tagged(), default_settings(), ["a"], 0)
+    command = {"op": "createCollection", "collectionId": "c", "name": "Море", "mediaIds": ["a"]}
+    assert l2.find_collection(l3.apply_command(state, command, 1)["catalog"], "c")["mediaIds"] == ["a"]
