@@ -15,7 +15,30 @@ A pixel art picture frame for the [Pimoroni Presto](https://shop.pimoroni.com/pr
   speed and slide time; in the "Сцены" mode a Scene plays until you swipe.
 - **Ambient light.** The 7 LEDs on the back follow the colours at the edges of the screen.
 
-The device menu is in Russian; the web page and the docs are in English.
+The device menu and the web page are in Russian; the code and the docs are in English.
+
+<p align="center">
+  <img src="docs/screenshots/scene-castle.gif" width="256" alt="A living Scene: lightning over a castle, 64x64">
+</p>
+
+## Screenshots
+
+**On the Presto** (480×480): a picture on the screen, the menu "Что показывать", settings, a
+Collection's own show settings, the menu of the current picture, the on-screen keyboard.
+
+![The gallery on the Presto screen](docs/screenshots/device.png)
+
+**In the browser**: adding a picture (the pixelization preview is live), what to show, the library.
+
+![Adding a picture](docs/screenshots/web-add.png)
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/web-show.png" alt="What to show"><br>
+        <img src="docs/screenshots/web-library.png" alt="The library"></td>
+    <td width="300"><img src="docs/screenshots/web-mobile.png" alt="On a phone"></td>
+  </tr>
+</table>
 
 ## Quick start: the pixelizer on the desktop
 
