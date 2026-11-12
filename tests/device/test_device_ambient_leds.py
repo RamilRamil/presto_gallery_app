@@ -48,8 +48,15 @@ def test_settings_without_the_led_value_keep_it():
     assert changed["settings"]["ambientLeds"] is False and changed["settings"]["slideSeconds"] == 30
 
 
+def test_start_builds_the_playlist_from_the_saved_settings():
+    """At start the app applies the saved settings to an empty Playlist; equal settings must still build it."""
+    state = playing()
+    assert sorted(state["playlist"]) == ["p%d" % n for n in range(6)]
+
+
 def test_switching_the_leds_keeps_the_playlist_and_the_item_on_screen():
     state = playing()
+    assert state["playlist"]
     changed = l3.apply_command(state, {"op": "setSettings",
                                        "settings": dict(state["settings"], ambientLeds=False)}, 99)
     assert changed["settings"]["ambientLeds"] is False

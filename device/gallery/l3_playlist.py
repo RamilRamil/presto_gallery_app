@@ -210,7 +210,7 @@ def apply_command(state, command, seed):
             if key not in raw:
                 raw = dict(raw, **{key: settings[key]})
         settings = _known_collection(catalog, validate_settings(raw))
-        if quiet_change(state["settings"], settings):
+        if playlist and quiet_change(state["settings"], settings):  # an empty one (at start) is built
             return device_state(catalog, settings, playlist, index)
     elif op == "show":
         item = find_item(catalog, command["mediaId"])
