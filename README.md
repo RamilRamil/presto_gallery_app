@@ -1,36 +1,90 @@
-# PRESTO_PIC_LOADER
+# Presto Gallery
 
-Turns any PNG/JPEG/WebP into pixel art for the Pimoroni Presto (480×480).
+A pixel art picture frame for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto)
+(RP2350, 480×480 touch screen, MicroPython).
+
+- **Pixelizer.** Turns pictures into pixel art: a grid from 16 to 480 cells, an adaptive palette of 2
+  to 256 colours or a fixed one (PICO-8), optional dithering. The desktop tool takes PNG, JPEG and
+  WebP; the browser, with the same algorithm, also takes animated GIFs.
+- **Wi-Fi gallery on the Presto.** The board serves a web page: upload pictures, GIFs and Scenes
+  (small MicroPython programs that draw live), tag them, group them into Collections, choose what
+  to show. On the device, swipes change slides and brightness, a tap pauses, and a long press opens
+  a menu with an on-screen keyboard.
+- **Living Scenes.** A Scene is a `.py` file with `run(stop)`; it can play a moment that never repeats
+  (see [docs/scene-format.md](docs/scene-format.md)). Each Scene and each Collection has its own
+  speed and slide time; in the "Сцены" mode a Scene plays until you swipe.
+- **Ambient light.** The 7 LEDs on the back follow the colours at the edges of the screen.
+
+The device menu is in Russian; the web page and the docs are in English.
+
+## Quick start: the pixelizer on the desktop
 
 ```bash
 uv venv .venv && uv pip install -p .venv -e '.[dev]'
 cp ~/Pictures/cat.jpg inbox/
 .venv/bin/python -m presto_pic_loader            # defaults: --grid 32 --colors 16 --fit crop
 .venv/bin/python -m presto_pic_loader --grid 64 --palette pico-8 --fit fit --dither
-.venv/bin/pytest
 ```
 
-Results go to `outbox/`: `<name>.preview.png` (8 px per cell) and `<name>.bin`
-([format](docs/bin-format.md)). Options: `--grid 16|32|40|60|64|80|120|240|480`, `--colors 2..256` or `--palette pico-8`,
+Results go to `outbox/`: `<name>.preview.png` and `<name>.bin` ([format](docs/bin-format.md)).
+Options: `--grid 16|32|40|60|64|80|120|240|480`, `--colors 2..256` or `--palette pico-8`,
 `--fit crop|fit`, `--background #RRGGBB`, `--dither`, `--preview-scale N`, `--inbox`, `--outbox`.
 Exit codes: 0 ok, 1 some file failed, 2 bad options.
 
-Design: `specs/001-presto-pixelizer/` (spec, plan with layer graph), vocabulary
-`knowledge/domain.okf.json`, principles `.specify/memory/constitution.md`.
+## Quick start: the gallery on a Presto
 
-## Presto Wi-Fi Gallery (feature 002)
+1. Flash the Presto with Pimoroni's MicroPython build for the Presto.
+2. Copy `device/secrets.example.py` to `device/secrets.py` and fill in your Wi-Fi and a
+   `WEB_PASSWORD`. This file is git-ignored; never commit it.
+3. Copy the app to the board with `mpremote` and reset it. The screen shows the address to open.
 
-The Presto serves a web page where you upload pictures and GIFs (converted in the browser),
-tag them and choose what to show: everything, only pictures, only GIFs, or by tags.
-Setup: [docs/device-setup.md](docs/device-setup.md). Try it locally without hardware:
-`.venv/bin/python device/sim/run_sim.py 8080` → http://localhost:8080.
-Browser and desktop share one quantization algorithm ([docs/pixelize-algorithm.md](docs/pixelize-algorithm.md)),
-checked byte-for-byte by golden vectors (`tests/golden/`). Tests: `.venv/bin/pytest` and `node --test web/test/`.
+Step by step, with the microSD card, gestures and the menu: [docs/device-setup.md](docs/device-setup.md).
 
-## Working with the gallery
+No board at hand? The simulator serves the same web page and draws the screen to a PNG:
 
-In the web interface you can select many files at once, including `.py` Scenes, group files into
-Collections, and select files in the library to delete them, add a Tag or add them to a Collection.
-On the Presto, swipes change pictures and brightness, a tap pauses, and a long press opens a menu
-for choosing what to show and for managing Tags and Collections. See
-[docs/device-setup.md](docs/device-setup.md) and [docs/scene-format.md](docs/scene-format.md).
+```bash
+.venv/bin/python device/sim/run_sim.py 8080       # then open http://localhost:8080
+```
+
+## Security
+
+- `WEB_PASSWORD` protects the whole `/api`. Without it the gallery is open to everyone on your
+  network and Scene upload is off.
+- The page is plain HTTP: the password crosses your local network unencrypted. Keep the Presto on a
+  network you trust and do not expose it to the internet (no port forwarding).
+- A Scene is code that runs with full access to the board, including `secrets.py`. Upload only Scenes
+  you wrote or have read.
+
+## Development
+
+```bash
+.venv/bin/pytest                      # desktop tool, device logic, golden vectors, layer guards
+node --test web/test/                 # browser logic, golden vectors, GIF decoder
+.venv/bin/python -m presto_pic_loader.golden   # regenerate golden vectors after changing the algorithm
+```
+
+The code is written in layers ("stratified design"): 1 primitives, 2 image and catalog operations,
+3 pure rules (pipeline, playlist, menu), 4 codecs, 5 actions (files, network, screen). Each layer
+calls only its own level or below; input and output happen only in layer 5. Tests guard the layer
+rules in Python and JavaScript.
+
+| Path | What |
+|---|---|
+| `src/presto_pic_loader/` | the desktop pixelizer |
+| `web/` | the gallery's web page and the browser pixelizer |
+| `device/` | the gallery on the board (`gallery/`), drawing helpers for Scenes (`pixel.py`), simulator |
+| `docs/` | `.bin` format, pixelize algorithm, Scene format, device setup |
+| `knowledge/domain.okf.json` | the shared vocabulary of the project |
+| `specs/` | one folder per feature: spec, plan, tasks |
+
+The browser and the desktop share one quantization algorithm, checked byte for byte by the golden
+vectors in `tests/golden/`.
+
+## Third-party code
+
+- [microdot](https://github.com/miguelgrinberg/microdot) by Miguel Grinberg, MIT, vendored in
+  `device/lib/microdot/` with its license.
+
+## License
+
+[MIT](LICENSE)

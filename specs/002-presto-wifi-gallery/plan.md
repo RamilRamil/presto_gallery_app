@@ -189,7 +189,7 @@ Upload is streamed to `media/<id>.tmp`, validated (header + exact length), then 
 - **microSD on Presto**: slot exists; mounting via `machine.SPI` + `sdcard` driver — exact pins and
   whether the firmware bundles `sdcard` must be verified on the device. Fallback: flash.
 - **Wi-Fi + mDNS**: `presto.connect()` reads `secrets.py`; mDNS hostname via `network.hostname("presto")`
-  — verify; fallback is the IP shown on screen (reserve it in Keenetic).
+  — verify; fallback is the IP shown on screen (reserve it in the router).
 - **GIF**: own decoder (LZW, disposal methods 0–2, transparency → background) — ~200 lines, testable in node.
 - **iOS Safari**: no WebCodecs dependency; Canvas `drawImage` for PNG/JPEG/WebP; HEIC from iPhone photo
   picker is auto-converted to JPEG by Safari.

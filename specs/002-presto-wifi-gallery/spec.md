@@ -161,6 +161,6 @@ address and current mode for 5 s.
 - Home LAN is trusted: no login/password on the WebUi in this feature.
 - The Presto runs Pimoroni's MicroPython firmware (with the `presto` module), as in the existing
   PRESTO project; the new DeviceApp replaces that project's `main.py` menu of code-drawn scenes.
-- Keenetic needs no setup beyond optionally reserving a fixed IP for the Presto.
+- The router needs no setup beyond optionally reserving a fixed IP for the Presto.
 - Upload of the original image file to the device is not needed; only the .bin is stored.
 - Desktop upload from the Python CLI is out of scope (possible follow-up).

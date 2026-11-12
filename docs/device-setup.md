@@ -35,8 +35,8 @@ mpremote cp device/secrets.py :secrets.py
 1. Reset the Presto. It shows "connecting to Wi-Fi", then its address, e.g. `http://192.168.1.57`
    and `http://presto.local`, and which storage it uses (`microSD` or `flash`).
 2. Open the address on a phone or computer in the same network.
-3. In the Keenetic web interface (Home network → device list → Presto) you can make the IP
-   permanent ("Permanent IP address"), so the address never changes.
+3. In your router's settings you can reserve this IP for the Presto (a DHCP reservation), so
+   the address never changes.
 4. Gestures on the screen:
 
    | Gesture | Action |
